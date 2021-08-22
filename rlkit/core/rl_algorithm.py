@@ -2,6 +2,8 @@ import abc
 from collections import OrderedDict
 
 import gtimer as gt
+import numpy as np
+import torch
 
 from rlkit.core import logger, eval_util
 from rlkit.data_management.replay_buffer import ReplayBuffer
@@ -30,6 +32,9 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
             exploration_data_collector: DataCollector,
             evaluation_data_collector: DataCollector,
             replay_buffer: ReplayBuffer,
+            early_stop_wait_epochs=None,
+            early_stop_delta=None,
+            early_stop_using_eval=True,
     ):
         self.trainer = trainer
         self.expl_env = exploration_env
@@ -37,7 +42,16 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         self.expl_data_collector = exploration_data_collector
         self.eval_data_collector = evaluation_data_collector
         self.replay_buffer = replay_buffer
-        self._start_epoch = 0
+        # Keep track of best expl and eval epochs.
+        self._best_expl_epoch, self._best_eval_epoch = 0, 0
+        self._best_expl_return, self._best_eval_return = float('-inf'), float('-inf')
+        # Early stopping data.
+        self._early_stop_wait_epochs = early_stop_wait_epochs
+        self._early_stop_delta = early_stop_delta
+        self._early_stop_using_eval = early_stop_using_eval
+        self._early_stop_best_epoch = 0
+        self._early_stop_best_return = float('-inf')
+        self._should_early_stop = False
 
         self.post_epoch_funcs = []
 
@@ -51,9 +65,37 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         """
         raise NotImplementedError('_train must implemented by inherited class')
 
+    def _mark_returns(self, epoch, paths, eval_returns=False):
+        score = np.mean([np.sum(path) for path in paths])
+        if eval_returns:
+            if score > self._best_eval_return:
+                self._best_eval_return = score
+                self._best_eval_epoch = epoch
+            if not self._early_stop_using_eval:
+                return
+        else:
+            if score > self._best_expl_return:
+                self._best_expl_return = score
+                self._best_expl_epoch = epoch
+            if self._early_stop_using_eval:
+                return
+        if (self._early_stop_wait_epochs is not None
+                and self._early_stop_delta is not None):
+            if score - self._early_stop_best_return > self._early_stop_delta:
+                self._early_stop_best_return = score
+                self._early_stop_best_epoch = epoch
+            elif epoch = self._early_stop_best_return >= self._early_stop_wait_epochs:
+                self._should_early_stop = True
+
+
     def _end_epoch(self, epoch):
         snapshot = self._get_snapshot()
         logger.save_itr_params(epoch, snapshot)
+        self._save_policy_weights('model.pt')
+        if epoch == self._best_eval_epoch:
+            self._save_policy_weights('best_eval_model.pt')
+        if epoch == self._best_expl_epoch:
+            self._save_policy_weights('best_expl_model.pt')
         gt.stamp('saving')
         self._log_stats(epoch)
 
@@ -64,6 +106,10 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
 
         for post_epoch_func in self.post_epoch_funcs:
             post_epoch_func(self, epoch)
+
+    def _save_policy_weights(self, filename):
+        save_path = os.path.join(logger.get_snapshot_dir, filename)
+        torch.save(self.expl_data_collector.policy.state_dict(), save_path)
 
     def _get_snapshot(self):
         snapshot = {}

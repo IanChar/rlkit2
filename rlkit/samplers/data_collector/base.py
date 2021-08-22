@@ -12,6 +12,11 @@ class DataCollector(object, metaclass=abc.ABCMeta):
         return {}
 
     @abc.abstractmethod
+    @property
+    def policy(self):
+        """Get the policy that is used to collect data."""
+
+    @abc.abstractmethod
     def get_epoch_paths(self):
         pass
 

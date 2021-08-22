@@ -92,6 +92,11 @@ class MdpPathCollector(PathCollector):
                 policy=self._policy,
             )
 
+    @property
+    def policy(self):
+        """Get the policy that is used to collect data."""
+        return self._policy
+
 
 class EnvModelPathCollector(PathCollector):
     def __init__(
@@ -170,6 +175,11 @@ class EnvModelPathCollector(PathCollector):
         return dict(
             policy=self._policy,
         )
+
+    @property
+    def policy(self):
+        """Get the policy that is used to collect data."""
+        return self._policy
 
 
 class GoalConditionedPathCollector(PathCollector):
@@ -260,3 +270,8 @@ class GoalConditionedPathCollector(PathCollector):
             observation_key=self._observation_key,
             desired_goal_key=self._desired_goal_key,
         )
+
+    @property
+    def policy(self):
+        """Get the policy that is used to collect data."""
+        return self._policy

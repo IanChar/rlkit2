@@ -119,6 +119,11 @@ class MdpStepCollector(StepCollector):
             self._num_paths_total += 1
             self._num_steps_total += path_len
 
+    @property
+    def policy(self):
+        """Get the policy that is used to collect data."""
+        return self._policy
+
 
 class GoalConditionedStepCollector(StepCollector):
     def __init__(
@@ -248,3 +253,8 @@ class GoalConditionedStepCollector(StepCollector):
             self._epoch_paths.append(path)
             self._num_paths_total += 1
             self._num_steps_total += path_len
+
+    @property
+    def policy(self):
+        """Get the policy that is used to collect data."""
+        return self._policy
