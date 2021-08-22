@@ -79,7 +79,7 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
                     best_return = score
                 elif epoch - best_epoch >= self.early_stop_wait_epochs:
                     break
-            gt.stamp('evaluation sampling')
+            gt.stamp('evaluation sampling', unique=False)
             for _ in range(self.num_train_loops_per_epoch):
                 new_expl_paths = self.expl_data_collector.collect_new_paths(
                     self.max_path_length,
