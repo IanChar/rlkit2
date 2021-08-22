@@ -1,5 +1,6 @@
 import abc
 from collections import OrderedDict
+import os
 
 import gtimer as gt
 import numpy as np
@@ -66,7 +67,7 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         raise NotImplementedError('_train must implemented by inherited class')
 
     def _mark_returns(self, epoch, paths, eval_returns=False):
-        score = np.mean([np.sum(path) for path in paths])
+        score = np.mean([np.sum(path['rewards']) for path in paths])
         if eval_returns:
             if score > self._best_eval_return:
                 self._best_eval_return = score
@@ -84,13 +85,14 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
             if score - self._early_stop_best_return > self._early_stop_delta:
                 self._early_stop_best_return = score
                 self._early_stop_best_epoch = epoch
-            elif epoch = self._early_stop_best_return >= self._early_stop_wait_epochs:
+            elif epoch - self._early_stop_best_return >= self._early_stop_wait_epochs:
                 self._should_early_stop = True
 
 
     def _end_epoch(self, epoch):
-        snapshot = self._get_snapshot()
-        logger.save_itr_params(epoch, snapshot)
+        # Comment out snapshot because it doesn't even do anything for me anymore.
+        # snapshot = self._get_snapshot()
+        # logger.save_itr_params(epoch, snapshot)
         self._save_policy_weights('model.pt')
         if epoch == self._best_eval_epoch:
             self._save_policy_weights('best_eval_model.pt')
@@ -108,7 +110,7 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
             post_epoch_func(self, epoch)
 
     def _save_policy_weights(self, filename):
-        save_path = os.path.join(logger.get_snapshot_dir, filename)
+        save_path = os.path.join(logger.get_snapshot_dir(), filename)
         torch.save(self.expl_data_collector.policy.state_dict(), save_path)
 
     def _get_snapshot(self):

@@ -11,7 +11,12 @@ class PyTorchModule(nn.Module, metaclass=abc.ABCMeta):
     """
     Keeping wrapper around to be a bit more future-proof.
     """
-    pass
+
+    @classmethod
+    def load_from_pt(cls, pt_path, map_location='cpu', **kwargs):
+        instance = cls(**kwargs)
+        instance.load_state_dict(torch.load(pt_path))
+        return instance
 
 
 def eval_np(module, *args, **kwargs):

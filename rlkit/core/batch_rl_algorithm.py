@@ -39,7 +39,7 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
             replay_buffer,
             early_stop_wait_epochs=early_stop_wait_epochs,
             early_stop_delta=early_stop_delta,
-            early_stop_using_eval,
+            early_stop_using_eval=early_stop_using_eval,
         )
         self.batch_size = batch_size
         self.max_path_length = max_path_length

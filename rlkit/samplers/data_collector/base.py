@@ -11,8 +11,8 @@ class DataCollector(object, metaclass=abc.ABCMeta):
     def get_snapshot(self):
         return {}
 
-    @abc.abstractmethod
     @property
+    @abc.abstractmethod
     def policy(self):
         """Get the policy that is used to collect data."""
 
