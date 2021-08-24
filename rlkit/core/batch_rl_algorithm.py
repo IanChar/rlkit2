@@ -29,6 +29,7 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
             early_stop_wait_epochs=None,
             early_stop_delta=None,
             early_stop_using_eval=True,
+            use_gtimer=False,
     ):
         super().__init__(
             trainer,
@@ -40,6 +41,7 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
             early_stop_wait_epochs=early_stop_wait_epochs,
             early_stop_delta=early_stop_delta,
             early_stop_using_eval=early_stop_using_eval,
+            use_gtimer=use_gtimer,
         )
         self.batch_size = batch_size
         self.max_path_length = max_path_length
@@ -61,34 +63,37 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
             self.replay_buffer.add_paths(init_expl_paths)
             self.expl_data_collector.end_epoch(-1)
 
-        for epoch in gt.timed_for(
-                range(self._start_epoch, self.num_epochs),
+        epoch_iterator = range(self._start_epoch, self.num_epochs)
+        if self._use_gtimer:
+            epoch_iterator = gt.timed_for(
+                epoch_iterator,
                 save_itrs=True,
-        ):
+            )
+        for epoch in epoch_iterator:
             eval_paths = self.eval_data_collector.collect_new_paths(
                 self.max_path_length,
                 self.num_eval_steps_per_epoch,
                 discard_incomplete_paths=True,
             )
             self._mark_returns(epoch, eval_paths, eval_returns=True)
-            gt.stamp('evaluation sampling', unique=False)
+            self._time_stamp('evaluation sampling', unique=False)
             for _ in range(self.num_train_loops_per_epoch):
                 new_expl_paths = self.expl_data_collector.collect_new_paths(
                     self.max_path_length,
                     self.num_expl_steps_per_train_loop,
                     discard_incomplete_paths=False,
                 )
-                gt.stamp('exploration sampling', unique=False)
+                self._time_stamp('exploration sampling', unique=False)
 
                 self.replay_buffer.add_paths(new_expl_paths)
-                gt.stamp('data storing', unique=False)
+                self._time_stamp('data storing', unique=False)
 
                 self.training_mode(True)
                 for _ in range(self.num_trains_per_train_loop):
                     train_data = self.replay_buffer.random_batch(
                         self.batch_size)
                     self.trainer.train(train_data)
-                gt.stamp('training', unique=False)
+                self._time_stamp('training', unique=False)
                 self.training_mode(False)
                 if self.clear_buffer_every_train_loop:
                     self.replay_buffer.clear_buffer()
