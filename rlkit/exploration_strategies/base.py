@@ -41,6 +41,10 @@ class PolicyWrappedWithExplorationStrategy(ExplorationPolicy):
     def get_action(self, *args, **kwargs):
         return self.es.get_action(self.t, self.policy, *args, **kwargs)
 
+    @property
+    def state_dict(self):
+        return self.policy.state_dict
+
     def reset(self):
         self.es.reset()
         self.policy.reset()
