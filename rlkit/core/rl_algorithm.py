@@ -36,6 +36,7 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
             early_stop_wait_epochs=None,
             early_stop_delta=None,
             early_stop_using_eval=True,
+            use_gtimer=False,
     ):
         self.trainer = trainer
         self.expl_env = exploration_env
@@ -53,6 +54,8 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         self._early_stop_best_epoch = 0
         self._early_stop_best_return = float('-inf')
         self._should_early_stop = False
+        # Gtimer stuff.
+        self._use_gtimer = use_gtimer
 
         self.post_epoch_funcs = []
 
@@ -85,9 +88,12 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
             if score - self._early_stop_best_return > self._early_stop_delta:
                 self._early_stop_best_return = score
                 self._early_stop_best_epoch = epoch
-            elif epoch - self._early_stop_best_return >= self._early_stop_wait_epochs:
+            elif epoch - self._early_stop_best_epoch >= self._early_stop_wait_epochs:
                 self._should_early_stop = True
 
+    def _time_stamp(self, name, **kwargs):
+        if self._use_gtimer:
+            gt.stamp(name, **kwargs)
 
     def _end_epoch(self, epoch):
         for netname, net in self.trainer.get_snapshot().items():
@@ -98,7 +104,7 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         if epoch == self._best_expl_epoch:
             for netname, net in self.trainer.get_snapshot().items():
                 self._save_network_weights('best_expl_' + netname + '.pt', net)
-        gt.stamp('saving', unique=False)
+        self._time_stamp('saving', unique=False)
         self._log_stats(epoch)
 
         self.expl_data_collector.end_epoch(epoch)
@@ -180,8 +186,9 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         """
         Misc
         """
-        gt.stamp('logging', unique=False)
-        logger.record_dict(_get_epoch_timings())
+        self._time_stamp('logging', unique=False)
+        if self._use_gtimer:
+            logger.record_dict(_get_epoch_timings())
         logger.record_tabular('Epoch', epoch)
         logger.dump_tabular(with_prefix=False, with_timestamp=False)
 
