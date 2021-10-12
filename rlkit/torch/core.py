@@ -15,7 +15,7 @@ class PyTorchModule(nn.Module, metaclass=abc.ABCMeta):
     @classmethod
     def load_from_pt(cls, pt_path, map_location='cpu', **kwargs):
         instance = cls(**kwargs)
-        instance.load_state_dict(torch.load(pt_path))
+        instance.load_state_dict(torch.load(pt_path, map_location))
         return instance
 
 

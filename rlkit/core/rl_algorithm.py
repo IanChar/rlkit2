@@ -90,14 +90,14 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
 
 
     def _end_epoch(self, epoch):
-        # Comment out snapshot because it doesn't even do anything for me anymore.
-        # snapshot = self._get_snapshot()
-        # logger.save_itr_params(epoch, snapshot)
-        self._save_policy_weights('model.pt')
+        for netname, net in self.trainer.get_snapshot().items():
+            self._save_network_weights(netname + '.pt', net)
         if epoch == self._best_eval_epoch:
-            self._save_policy_weights('best_eval_model.pt')
+            for netname, net in self.trainer.get_snapshot().items():
+                self._save_network_weights('best_eval_' + netname + '.pt', net)
         if epoch == self._best_expl_epoch:
-            self._save_policy_weights('best_expl_model.pt')
+            for netname, net in self.trainer.get_snapshot().items():
+                self._save_network_weights('best_expl_' + netname + '.pt', net)
         gt.stamp('saving', unique=False)
         self._log_stats(epoch)
 
@@ -109,9 +109,10 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         for post_epoch_func in self.post_epoch_funcs:
             post_epoch_func(self, epoch)
 
-    def _save_policy_weights(self, filename):
+    def _save_network_weights(self, filename, net):
         save_path = os.path.join(logger.get_snapshot_dir(), filename)
         torch.save(self.expl_data_collector.policy.state_dict(), save_path)
+        torch.save(net.state_dict(), save_path)
 
     def _get_snapshot(self):
         snapshot = {}
