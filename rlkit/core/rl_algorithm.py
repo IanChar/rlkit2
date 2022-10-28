@@ -104,6 +104,7 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         if epoch == self._best_expl_epoch:
             for netname, net in self.trainer.get_snapshot().items():
                 self._save_network_weights('best_expl_' + netname + '.pt', net)
+        logger.save_itr_params(epoch, self._get_snapshot())
         self._time_stamp('saving', unique=False)
         self._log_stats(epoch)
 
