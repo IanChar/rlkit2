@@ -79,6 +79,7 @@ def rollout(
         max_path_length=np.inf,
         render=False,
         render_kwargs=None,
+        reset_kwargs=None,
 ):
     """
     The following value for the following keys will be a 2D array, with the
@@ -102,7 +103,10 @@ def rollout(
     terminals = []
     agent_infos = []
     env_infos = []
-    o = env.reset()
+    if reset_kwargs is not None:
+        o = env.reset(**reset_kwargs)
+    else:
+        o = env.reset()
     agent.reset()
     next_o = None
     path_length = 0
