@@ -272,12 +272,12 @@ class SplitIntoManyHeads(nn.Module):
             flat_outputs.narrow(1, start, length)
             for start, length in self._output_narrow_params
         )
-        outputs = tuple(
+        outputs = torch.stack([
             activation(x)
             for activation, x in zip(
                 self._output_activations, pre_activation_outputs
             )
-        )
+        ])
         return outputs
 
 

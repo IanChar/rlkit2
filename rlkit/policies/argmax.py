@@ -19,3 +19,37 @@ class ArgmaxDiscretePolicy(nn.Module, Policy):
         q_values = self.qf(obs).squeeze(0)
         q_values_np = ptu.get_numpy(q_values)
         return q_values_np.argmax(), {}
+
+
+"""Policies for Bootstrapped DQN"""
+
+
+class TSArgmaxDiscretePolicy(nn.Module, Policy):
+    def __init__(self, qf, ensemble_size):
+        super().__init__()
+        self.qf = qf
+        self.ensemble_size
+        self.draw = np.random.randint(len(self.ensemble_size))
+
+    def reset(self):
+        self.draw = np.random.randint(len(self.ensemble_size))
+
+    def get_action(self, obs):
+        obs = np.expand_dims(obs, axis=0)
+        obs = ptu.from_numpy(obs).float()
+        q_values = self.qf(obs)[self.draw].squeeze(0)
+        q_values_np = ptu.get_numpy(q_values)
+        return q_values_np.argmax(), {}
+
+
+class MeanArgmaxDiscretePolicy(nn.Module, Policy):
+    def __init__(self, qf):
+        super().__init__()
+        self.qf = qf
+
+    def get_action(self, obs):
+        obs = np.expand_dims(obs, axis=0)
+        obs = ptu.from_numpy(obs).float()
+        q_values = self.qf(obs).mean(0).squeeze(0)
+        q_values_np = ptu.get_numpy(q_values)
+        return q_values_np.argmax(), {}
