@@ -28,11 +28,11 @@ class TSArgmaxDiscretePolicy(nn.Module, Policy):
     def __init__(self, qf, ensemble_size):
         super().__init__()
         self.qf = qf
-        self.ensemble_size
-        self.draw = np.random.randint(len(self.ensemble_size))
+        self.ensemble_size = ensemble_size
+        self.draw = np.random.randint(self.ensemble_size)
 
     def reset(self):
-        self.draw = np.random.randint(len(self.ensemble_size))
+        self.draw = np.random.randint(self.ensemble_size)
 
     def get_action(self, obs):
         obs = np.expand_dims(obs, axis=0)

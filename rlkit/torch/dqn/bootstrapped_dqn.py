@@ -13,22 +13,22 @@ class BootstrappedDQNTrainer(DQNTrainer):
         obs = batch['observations']
         actions = batch['actions']
         next_obs = batch['next_observations']
-        masks = batch['bootstrap_masks']
+        masks = batch['masks'].T.unsqueeze(-1)
         """
         Compute loss
         """
         # The assumption here is that the first index is for the heads.
-        best_action_idxs = self.qf(next_obs)[masks].max(
-            1, keepdim=True
+        best_action_idxs = self.qf(next_obs).max(
+            2, keepdim=True
         )[1]
-        target_q_values = self.target_qf(next_obs)[masks].gather(
-            1, best_action_idxs
+        target_q_values = self.target_qf(next_obs).gather(
+            2, best_action_idxs
         ).detach()
         y_target = rewards + (1. - terminals) * self.discount * target_q_values
         y_target = y_target.detach()
         # actions is a one-hot vector
-        y_pred = torch.sum(self.qf(obs) * actions, dim=1, keepdim=True)
-        qf_loss = self.qf_criterion(y_pred, y_target)
+        y_pred = torch.sum(self.qf(obs) * actions, dim=2, keepdim=True)
+        qf_loss = self.qf_criterion(y_pred * masks, y_target * masks)
 
         """
         Update networks
