@@ -2,6 +2,7 @@ import abc
 
 import gtimer as gt
 import numpy as np
+from tqdm import tqdm
 
 from rlkit.core.rl_algorithm import BaseRLAlgorithm
 from rlkit.data_management.replay_buffer import ReplayBuffer
@@ -77,7 +78,7 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
             )
             self._mark_returns(epoch, eval_paths, eval_returns=True)
             self._time_stamp('evaluation sampling', unique=False)
-            for _ in range(self.num_train_loops_per_epoch):
+            for _ in tqdm(range(self.num_train_loops_per_epoch)):
                 new_expl_paths = self.expl_data_collector.collect_new_paths(
                     self.max_path_length,
                     self.num_expl_steps_per_train_loop,

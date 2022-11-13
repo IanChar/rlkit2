@@ -98,7 +98,7 @@ class MdpPathCollector(PathCollector):
         return self._policy
 
 
-class MdpBatchPathCollector(MdpPathCollector):
+class BatchMdpPathCollector(MdpPathCollector):
 
     def collect_new_paths(
             self,
