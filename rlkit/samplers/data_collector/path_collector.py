@@ -98,6 +98,42 @@ class MdpPathCollector(PathCollector):
         return self._policy
 
 
+class MdpBatchPathCollector(MdpPathCollector):
+
+    def collect_new_paths(
+            self,
+            max_path_length,
+            num_steps,
+            discard_incomplete_paths,
+    ):
+        num_paths = int(np.ceil(num_steps // max_path_length))
+        unrolls = self._env.rollout(
+            policy=self._policy,
+            num_unrolls=num_paths,
+            horizon=max_path_length,
+        )
+        # Convert dict with everything to list of dicts
+        paths = []
+        for pidx in range(unrolls['observations'].shape[0]):
+            pathlen = (max_path_length if np.sum(unrolls['terminals'][pidx]) == 0
+                       else np.argmax(unrolls['terminals'][pidx]) + 1)
+            env_path_info, pi_path_info = \
+                [[{} for _ in range(pathlen)] for _ in range(2)]
+            for log_pi, pi_info in zip(unrolls['logpi'][pidx], pi_path_info):
+                pi_info['logpi'] = log_pi
+            path_to_add = {}
+            for k in ['observations', 'next_observations', 'actions', 'rewards',
+                      'terminals']:
+                path_to_add[k] = unrolls[k][pidx, :pathlen]
+            path_to_add['env_infos'] = env_path_info
+            path_to_add['agent_infos'] = pi_path_info
+            paths.append(path_to_add)
+        self._num_paths_total += len(paths)
+        self._num_steps_total += num_paths * max_path_length
+        self._epoch_paths.extend(paths)
+        return paths
+
+
 class EnvModelPathCollector(PathCollector):
     def __init__(
             self,
@@ -131,7 +167,7 @@ class EnvModelPathCollector(PathCollector):
             pathlen = (len(terminals) if np.sum(terminals[:, pathnum]) == 0
                        else np.argmax(terminals[:, pathnum]))
             env_path_info, pi_path_info = \
-                    [[{} for _ in range(pathlen)] for _ in range(2)]
+                [[{} for _ in range(pathlen)] for _ in range(2)]
             for k, v in envinfos.items():
                 for dtoadd, val in zip(env_path_info, v[:, pathnum]):
                     dtoadd[k] = val
