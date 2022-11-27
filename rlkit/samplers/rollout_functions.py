@@ -27,7 +27,7 @@ def multitask_rollout(
     next_observations = []
     path_length = 0
     agent.reset()
-    o = env.reset()
+    o, info = env.reset()
     if render:
         env.render(**render_kwargs)
     goal = o[desired_goal_key]
@@ -37,19 +37,19 @@ def multitask_rollout(
             o = o[observation_key]
         new_obs = np.hstack((o, goal))
         a, agent_info = agent.get_action(new_obs, **get_action_kwargs)
-        next_o, r, d, env_info = env.step(a)
+        next_o, r, term, trunc, env_info = env.step(a)
         if render:
             env.render(**render_kwargs)
         observations.append(o)
         rewards.append(r)
-        terminals.append(d)
+        terminals.append(term)
         actions.append(a)
         next_observations.append(next_o)
         dict_next_obs.append(next_o)
         agent_infos.append(agent_info)
         env_infos.append(env_info)
         path_length += 1
-        if d:
+        if term or trunc:
             break
         o = next_o
     actions = np.array(actions)
@@ -104,9 +104,9 @@ def rollout(
     agent_infos = []
     env_infos = []
     if reset_kwargs is not None:
-        o = env.reset(**reset_kwargs)
+        o, env_info = env.reset(**reset_kwargs)
     else:
-        o = env.reset()
+        o, env_info = env.reset()
     agent.reset()
     next_o = None
     path_length = 0
@@ -114,15 +114,15 @@ def rollout(
         env.render(**render_kwargs)
     while path_length < max_path_length:
         a, agent_info = agent.get_action(o)
-        next_o, r, d, env_info = env.step(a)
+        next_o, r, term, trunc, env_info = env.step(a)
         observations.append(o)
         rewards.append(r)
-        terminals.append(d)
+        terminals.append(term)
         actions.append(a)
         agent_infos.append(agent_info)
         env_infos.append(env_info)
         path_length += 1
-        if d:
+        if term or trunc:
             break
         o = next_o
         if render:
