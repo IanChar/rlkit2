@@ -41,6 +41,7 @@ class RecurrentNet(PyTorchModule):
             rnn_num_layers: The number of layers in the recurrent unit.
             rnn_type: The type of the recurrent unit.
         """
+        super().__init__()
         self.encoder = Mlp(
             input_size=input_size,
             output_size=encode_size,
@@ -76,7 +77,7 @@ class RecurrentNet(PyTorchModule):
         if self.use_layer_norm:
             encoding = self._layer_norm(encoding)
         mem_out = self.memory_unit(encoding)[0]
-        output = self.decoder(torch.cat([encoding, mem_out], dim=1))
+        output = self.decoder(torch.cat([encoding, mem_out], dim=-1))
         return output
 
 

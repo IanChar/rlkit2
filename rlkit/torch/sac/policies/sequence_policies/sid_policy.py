@@ -30,26 +30,44 @@ class SIDTanhGaussianPolicy(TorchStochasticSequencePolicy):
 
     def __init__(
         self,
+        observation_dim: int,
         action_dim: int,
-        obs_encoder: Mlp,
+        obs_encoder_width: int,
+        obs_encoder_depth: int,
+        obs_encoding_size: int,
+        act_encoder_width: int,
+        act_encoder_depth: int,
+        act_encoding_size: int,
         lookback_len: int,
-        act_encoder: Optional[Mlp] = None,
         std=None,
-        init_w=1e-3,
+        use_act_encoder: bool = False,
+        init_w: float = 1e-3,
     ):
         """Constructor.
 
         Args:
-            obs_encoder: The encoder for the observations as an MLP.
-            act_encoder: Optional encoder for the actions as an MLP.
+            For each of the encoders provide width, depth, and the encoding produced.
+            lookback_len: How long ago should we look back for the integral term.
             std: Fixed standard deviation if necessary.
         """
-        self.obs_encoder = obs_encoder
-        self.act_encoder = act_encoder
+        super().__init__()
+        self.obs_encoder = Mlp(
+            input_size=observation_dim,
+            output_size=obs_encoding_size,
+            hidden_sizes=[obs_encoder_width for _ in range(obs_encoder_depth)],
+        )
         self.lookback_len = lookback_len
-        self.total_encode_dim = obs_encoder.output_size
-        if act_encoder is not None:
-            self.total_encode_dim += act_encoder.output_size
+        self.use_act_encoder = use_act_encoder
+        self.total_encode_dim = obs_encoding_size
+        if use_act_encoder:
+            self.act_encoder = Mlp(
+                input_size=observation_dim,
+                output_size=act_encoding_size,
+                hidden_sizes=[act_encoder_width for _ in range(act_encoder_depth)],
+            )
+            self.total_encode_dim += act_encoder_depth
+        else:
+            self.act_encoder = None
         self.std = std
         self.last_layer = torch.nn.Linear(self.total_encode_dim * 3, action_dim)
         if std is None:
@@ -67,7 +85,7 @@ class SIDTanhGaussianPolicy(TorchStochasticSequencePolicy):
         """
         # Encode all of the sequences.
         stats = self.obs_encoder(obs_seq)
-        if self.act_encoder is not None:
+        if self.use_act_encoder:
             act_stats = self.act_encoder(act_seq)
             stats = torch.cat([stats, act_stats], dim=-1)
         # Pad the fron of the stats with lookback_len - 1 for integral term.
@@ -77,12 +95,12 @@ class SIDTanhGaussianPolicy(TorchStochasticSequencePolicy):
         ], dim=1)
         integral_stats = torch.cat([
             torch.mean(padded_stats[:, i-self.lookback_len:i], dim=1, keepdim=True)
-            for i in range(self.lookback_len, padded_stats.shape[1])
+            for i in range(self.lookback_len, padded_stats.shape[1] + 1)
         ], dim=1)
         diff_stats = torch.cat([
             padded_stats[:, [i]] - padded_stats[:, [i - 1]]
-            for i in range(self.lookback_len, padded_stats.shape[1])
-        ])
+            for i in range(self.lookback_len - 1, padded_stats.shape[1])
+        ], dim=1)
         sid_out = torch.cat([
             stats,
             integral_stats,
@@ -105,6 +123,7 @@ class SIDPolicyAdapter(TorchStochasticPolicy):
         policy: SIDTanhGaussianPolicy,
         keep_track_of_grads: bool = False,
     ):
+        super().__init__()
         self.policy = policy
         self.keep_track_of_grads = keep_track_of_grads
         self.reset()
@@ -148,12 +167,12 @@ class SIDPolicyAdapter(TorchStochasticPolicy):
         integral_stat = torch.mean(self.stats, dim=1)
         diff_stat = self.stats[:, -1] - self.stats[:, -2]
         curr_sid = torch.cat([self.stats[:, -1], integral_stat, diff_stat], dim=-1)
-        mean = self.last_layer(curr_sid)
-        if self.std is None:
-            log_std = self.last_fc_log_std(curr_sid)
+        mean = self.policy.last_layer(curr_sid)
+        if self.policy.std is None:
+            log_std = self.policy.last_fc_log_std(curr_sid)
             log_std = torch.clamp(log_std, LOG_SIG_MIN, LOG_SIG_MAX)
             std = torch.exp(log_std)
         else:
-            std = torch.from_numpy(np.array([self.std, ])).float().to(
+            std = torch.from_numpy(np.array([self.policy.std, ])).float().to(
                 ptu.device)
         return TanhNormal(mean, std)

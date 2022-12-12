@@ -47,24 +47,26 @@ class SequentialSACTrainer(SACTrainer):
         ]
         log_pi = log_pi.unsqueeze(-1)
         if self.use_automatic_entropy_tuning:
-            alpha_loss = -(self.log_alpha
-                           * (log_pi + self.target_entropy).detach()).mean()
+            alpha_loss = (
+                (-(self.log_alpha * (log_pi + self.target_entropy).detach())
+                 * masks).sum() / masks.sum()
+            )
             alpha = self.log_alpha.exp()
         else:
             alpha_loss = 0
             alpha = 1
 
         q_new_actions = torch.min(
-            self.qf1(obs, new_obs_actions, prev_acts),
-            self.qf2(obs, new_obs_actions, prev_acts),
+            self.qf1(obs, new_obs_actions),
+            self.qf2(obs, new_obs_actions),
         )
         policy_loss = ((alpha*log_pi - q_new_actions) * masks).mean()
 
         """
         QF Loss
         """
-        q1_pred = self.qf1(obs, actions, prev_acts)
-        q2_pred = self.qf2(obs, actions, prev_acts)
+        q1_pred = self.qf1(obs, actions)
+        q2_pred = self.qf2(obs, actions)
         next_dists = self.policy(next_obs, actions)
         dist_outputs = [dist.sample_and_logprob() for dist in next_dists]
         new_next_actions, new_log_pi = [
@@ -73,8 +75,8 @@ class SequentialSACTrainer(SACTrainer):
         ]
         new_log_pi = new_log_pi.unsqueeze(-1)
         target_q_values = torch.min(
-            self.target_qf1(next_obs, new_next_actions, actions),
-            self.target_qf2(next_obs, new_next_actions, actions),
+            self.target_qf1(next_obs, new_next_actions),
+            self.target_qf2(next_obs, new_next_actions),
         ) - alpha * new_log_pi
         q_target = (self.reward_scale * rewards
                     + (1. - terminals) * self.discount * target_q_values)

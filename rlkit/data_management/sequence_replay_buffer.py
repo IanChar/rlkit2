@@ -27,7 +27,7 @@ class SequenceReplayBuffer(ReplayBuffer):
             max_replay_buffer_size: The maximum size of the replay buffer. One data
                 point refers to one sequence of the data.
             env: The environment that experience is being collected from.
-            max_pathlength: The maximum path length to store.
+            max_path_length: The maximum path length to store.
             batch_window_size: The size of window that are in a batch.
         """
         self._observation_dim = get_dim(env.observation_space)
@@ -48,24 +48,24 @@ class SequenceReplayBuffer(ReplayBuffer):
         # we can access previous actions.
         self._observations = np.zeros(
             (self._max_replay_buffer_size,
-             self._max_pathlength + self._window_size,
+             self._max_path_length + self._window_size,
              self._observation_dim))
         self._actions = np.zeros(
             (self._max_replay_buffer_size,
-             self._max_pathlength + self._window_size,
-             self._observation_dim))
+             self._max_path_length + self._window_size,
+             self._action_dim))
         self._rewards = np.zeros(
             (self._max_replay_buffer_size,
-             self._max_pathlength + self._window_size - 1, 1))
+             self._max_path_length + self._window_size - 1, 1))
         self._terminals = np.zeros(
             (self._max_replay_buffer_size,
-             self._max_pathlength + self._window_size - 1, 1), dtype='uint8')
+             self._max_path_length + self._window_size - 1, 1), dtype='uint8')
         self._masks = np.zeros(
             (self._max_replay_buffer_size,
-             self._max_pathlength + self._window_size - 1, 1), dtype='uint8')
+             self._max_path_length + self._window_size - 1, 1), dtype='uint8')
         # Initialize data structures to keep track of path lengths, top of buffer, etc.
-        self._valid_starts = np.zeros((self._max_data_points,  2))
-        self._pathlens = np.zeros(self._max_path_length)
+        self._valid_starts = np.zeros((self._max_data_points,  2), dtype='uint8')
+        self._pathlens = np.zeros(self._max_path_length, dtype='uint8')
         self._buffer_top = 0
         self._buffer_size = 0
         self._valid_top = 0
@@ -91,12 +91,11 @@ class SequenceReplayBuffer(ReplayBuffer):
         # Update the valid idxs.
         to_the_end = np.min([self._max_data_points - self._valid_top, pathlen])
         if to_the_end > 0:
-            self._valid_starts[self._valid_top + pathlen] = np.concatenate([
-                s.reshape(-1, 1) for s in [
-                    np.ones(to_the_end) * self._buffer_top,
-                    np.arange(to_the_end),
-                ]
-            ], axis=1)
+            self._valid_starts[self._valid_top:self._valid_top + to_the_end] =\
+                np.concatenate([s.reshape(-1, 1) for s in [
+                                np.ones(to_the_end) * self._buffer_top,
+                                np.arange(to_the_end)]
+                                ], axis=1)
         if to_the_end < pathlen:
             additional_amt = pathlen - to_the_end
             self._valid_starts[:additional_amt] = np.concatenate([
@@ -130,9 +129,9 @@ class SequenceReplayBuffer(ReplayBuffer):
                 ('masks', self._masks)):
             # Note that the actions are offset by 1 when they are loaded in.
             offset = int(key == 'next_observation' or key == 'actions')
-            batch[key] = buffer[seq_starts[:, 0],
-                                [seq_starts[:, 1] + i + offset
-                                 for i in range(self._window_size)]]
+            batch[key] = buffer[seq_starts[:, 0].reshape(-1, 1),
+                                np.array([seq_starts[:, 1] + i + offset
+                                          for i in range(self._window_size)]).T]
         return batch
 
     def add_paths(self, paths):

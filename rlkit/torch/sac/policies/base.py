@@ -69,3 +69,6 @@ class MakeDeterministic(TorchStochasticPolicy):
     def forward(self, *args, **kwargs):
         dist = self._action_distribution_generator.forward(*args, **kwargs)
         return Delta(dist.mle_estimate())
+
+    def reset(self):
+        self._action_distribution_generator.reset()
