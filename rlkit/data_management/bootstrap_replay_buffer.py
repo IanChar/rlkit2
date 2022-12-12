@@ -44,7 +44,8 @@ class BootstrappedReplayBuffer(SimpleReplayBuffer):
             new_action = action
         mask = np.zeros(self._ensemble_size)
         while np.sum(mask) == 0:
-            mask = np.random.poisson(1, size=self._ensemble_size)
+            # mask = np.random.poisson(1, size=self._ensemble_size)
+            mask = np.random.randint(2, size=self._ensemble_size)
         self._masks[self._top] = mask
         return super().add_sample(
             observation=observation,

@@ -32,11 +32,11 @@ class SequenceReplayBuffer(ReplayBuffer):
         """
         self._observation_dim = get_dim(env.observation_space)
         self._action_dim = get_dim(env.action_space)
-        self._max_replay_buffer_size = max_replay_buffer_size
-        self._window_size = batch_window_size
-        self._max_replay_buffer_size = max_replay_buffer_size
-        self._max_path_length = max_path_length
-        self._max_data_points = max_replay_buffer_size * max_path_length
+        self._max_replay_buffer_size = int(max_replay_buffer_size)
+        self._window_size = int(batch_window_size)
+        self._max_replay_buffer_size = int(max_replay_buffer_size)
+        self._max_path_length = int(max_path_length)
+        self._max_data_points = int(max_replay_buffer_size * max_path_length)
         self.clear_buffer()
 
     def clear_buffer(self):
