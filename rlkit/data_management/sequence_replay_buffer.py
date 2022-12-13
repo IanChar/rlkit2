@@ -150,7 +150,7 @@ class SequenceReplayBuffer(ReplayBuffer):
             self._valid_size -= self._pathlens[self._buffer_top]
         # Update the path lengths and valid index informatoin.
         self._pathlens[self._buffer_top] = pathlen
-        self._valid_top += (pathlen + 1) % self._max_data_points
+        self._valid_top = (self._valid_top + pathlen + 1) % self._max_data_points
         self._valid_size += pathlen
         # Update the top of the buffer
         self._buffer_top = (self._buffer_top + 1) % self._max_replay_buffer_size
