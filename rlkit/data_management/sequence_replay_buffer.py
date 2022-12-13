@@ -128,7 +128,7 @@ class SequenceReplayBuffer(ReplayBuffer):
                 ('terminals', self._terminals),
                 ('masks', self._masks)):
             # Note that the actions are offset by 1 when they are loaded in.
-            offset = int(key == 'next_observation' or key == 'actions')
+            offset = int(key == 'next_observations' or key == 'actions')
             batch[key] = buffer[seq_starts[:, 0].reshape(-1, 1),
                                 np.array([seq_starts[:, 1] + i + offset
                                           for i in range(self._window_size)]).T]
