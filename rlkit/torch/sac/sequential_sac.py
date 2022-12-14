@@ -40,7 +40,7 @@ class SequentialSACTrainer(SACTrainer):
         Policy and Alpha Loss
         """
         dists = self.policy(obs, prev_acts)
-        dist_outputs = [dist.sample_and_logprob() for dist in dists]
+        dist_outputs = [dist.rsample_and_logprob() for dist in dists]
         new_obs_actions, log_pi = [
             torch.cat([do[i].unsqueeze(1) for do in dist_outputs], dim=1)
             for i in range(2)
@@ -68,7 +68,7 @@ class SequentialSACTrainer(SACTrainer):
         q1_pred = self.qf1(obs, actions)
         q2_pred = self.qf2(obs, actions)
         next_dists = self.policy(next_obs, actions)
-        dist_outputs = [dist.sample_and_logprob() for dist in next_dists]
+        dist_outputs = [dist.rsample_and_logprob() for dist in next_dists]
         new_next_actions, new_log_pi = [
             torch.cat([do[i].unsqueeze(1) for do in dist_outputs], dim=1)
             for i in range(2)
