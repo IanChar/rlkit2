@@ -18,7 +18,7 @@ from rlkit.torch.sac.policies.sequence_policies.sequence_policies import (
 from rlkit.torch.networks.mlp import Mlp
 
 
-class SIDTanhGaussianPolicy(TorchStochasticSequencePolicy):
+class TemporalConvPolicy(TorchStochasticSequencePolicy):
     """Policy that comes up with statistics for each of the states. The action is
     then a linear function of
         * The last current statistic.
@@ -71,7 +71,7 @@ class SIDTanhGaussianPolicy(TorchStochasticSequencePolicy):
         self.std = std
         self.last_layer = torch.nn.Linear(num_channels, action_dim)
         if std is None:
-            self.last_fc_log_std = torch.nn.Linear(self.total_encode_dim * 3,
+            self.last_fc_log_std = torch.nn.Linear(num_channels,
                                                    action_dim)
             self.last_fc_log_std.weight.data.uniform_(-init_w, init_w)
             self.last_fc_log_std.bias.data.uniform_(-init_w, init_w)
@@ -110,11 +110,11 @@ class SIDTanhGaussianPolicy(TorchStochasticSequencePolicy):
         return [TanhNormal(means[:, i], stds[:, i]) for i in range(means.shape[1])]
 
 
-class SIDPolicyAdapter(TorchStochasticPolicy):
+class TemporalConvPolicyAdapter(TorchStochasticPolicy):
 
     def __init__(
         self,
-        policy: SIDTanhGaussianPolicy,
+        policy: TemporalConvPolicy,
         keep_track_of_grads: bool = False,
     ):
         super().__init__()
