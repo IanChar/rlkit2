@@ -140,12 +140,22 @@ class ConcatMlp(Mlp):
         flat_inputs = torch.cat(inputs, dim=self.dim)
         return super().forward(flat_inputs, **kwargs)
 
+
 class FlattenMlp(Mlp):
+
+    def __init__(
+        self,
+        dim_to_cat: int = 1,
+        **kwargs,
+    ):
+        self.dim_to_cat = dim_to_cat
+        super().__init__(**kwargs)
+
     """
     Flatten inputs along dimension 1 and then pass through MLP.
     """
     def forward(self, *inputs, **kwargs):
-        flat_inputs = torch.cat(inputs, dim=1)
+        flat_inputs = torch.cat(inputs, dim=self.dim_to_cat)
         return super().forward(flat_inputs, **kwargs)
 
 

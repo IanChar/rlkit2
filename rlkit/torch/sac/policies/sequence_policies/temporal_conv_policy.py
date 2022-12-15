@@ -28,7 +28,7 @@ class TemporalConvPolicy(TorchStochasticSequencePolicy):
 
     def __init__(
         self,
-        observation_dim: int,
+        obs_dim: int,
         action_dim: int,
         obs_encoder_width: int,
         obs_encoder_depth: int,
@@ -52,7 +52,7 @@ class TemporalConvPolicy(TorchStochasticSequencePolicy):
         """
         super().__init__()
         self.obs_encoder = Mlp(
-            input_size=observation_dim,
+            input_size=obs_dim,
             output_size=obs_encoding_size,
             hidden_sizes=[obs_encoder_width for _ in range(obs_encoder_depth)],
         )
@@ -61,7 +61,7 @@ class TemporalConvPolicy(TorchStochasticSequencePolicy):
         self.total_encode_dim = obs_encoding_size
         if use_act_encoder:
             self.act_encoder = Mlp(
-                input_size=observation_dim,
+                input_size=obs_dim,
                 output_size=act_encoding_size,
                 hidden_sizes=[act_encoder_width for _ in range(act_encoder_depth)],
             )
