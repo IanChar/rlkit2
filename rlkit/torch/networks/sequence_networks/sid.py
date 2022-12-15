@@ -47,6 +47,17 @@ class SIDNet(PyTorchModule):
             output_size=output_size,
             hidden_sizes=[decoder_width for _ in range(decoder_depth)],
         )
+        self.i_conv = torch.nn.Conv1d(
+            in_channels=encode_size,
+            out_channels=encode_size,
+            kernel_size=lookback_len,
+            groups=encode_size,
+            bias=False,
+        )
+        with torch.no_grad():
+            self.i_conv.weight = torch.nn.Parameter(
+                torch.ones_like(self.i_conv.weight) / float(self.lookback_len))
+        self.i_conv.weight.requires_grad = False
 
     def forward(self, net_in, **kwargs):
         """Forward pass.
@@ -61,14 +72,10 @@ class SIDNet(PyTorchModule):
             ptu.zeros(stats.shape[0], self.lookback_len - 1, stats.shape[-1]),
             stats,
         ], dim=1)
-        integral_stats = torch.cat([
-            torch.mean(padded_stats[:, i-self.lookback_len:i], dim=1, keepdim=True)
-            for i in range(self.lookback_len, padded_stats.shape[1] + 1)
-        ], dim=1)
-        diff_stats = torch.cat([
-            padded_stats[:, [i]] - padded_stats[:, [i - 1]]
-            for i in range(self.lookback_len - 1, padded_stats.shape[1])
-        ], dim=1)
+        integral_stats = self.i_conv(torch.transpose(padded_stats, 1, 2))
+        integral_stats = torch.transpose(integral_stats, 1, 2)
+        diff_stats = (padded_stats[:, self.lookback_len - 1:]
+                      - padded_stats[:, self.lookback_len - 2:-1])
         sid_out = torch.cat([
             stats,
             integral_stats,

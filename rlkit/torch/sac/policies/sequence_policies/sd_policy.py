@@ -88,11 +88,10 @@ class SDTanhGaussianPolicy(TorchStochasticSequencePolicy):
             stats = torch.cat([stats, act_stats], dim=-1)
         # Pad the fron of the stats with lookback_len - 1 for integral term.
         padded_stats = torch.cat([
-            ptu.zeros(stats.shape[0], self.lookback_len - 1, stats.shape[-1]),
+            ptu.zeros(stats.shape[0], 1, stats.shape[-1]),
             stats,
         ], dim=1)
-        diff_stats =\
-            (padded_stats[:, 1:] - padded_stats[:, :-1])[:, self.lookback_len - 2:]
+        diff_stats = (padded_stats[:, 1:] - padded_stats[:, :-1])
         sid_out = torch.cat([
             stats,
             diff_stats,
