@@ -174,7 +174,7 @@ class FlattenSeqMlp(Mlp):
     Flatten inputs along dimension 1 and then pass through MLP.
     """
     def forward(self, *inputs, **kwargs):
-        flat_inputs = torch.cat([i[-1] for i in inputs], dim=self.dim_to_cat)
+        flat_inputs = torch.cat([i[:, [-1]] for i in inputs], dim=self.dim_to_cat)
         return super().forward(flat_inputs, **kwargs)
 
 

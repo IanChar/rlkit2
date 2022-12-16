@@ -45,6 +45,10 @@ class SequentialSACTrainer(SACTrainer):
             torch.cat([do[i].unsqueeze(1) for do in dist_outputs], dim=1)
             for i in range(2)
         ]
+        if new_obs_actions.shape[1] == 1:  # Check if we are only doing one action.
+            masks = masks[:, [-1]]
+            terminals = terminals[:, [-1]]
+            rewards = rewards[:, [-1]]
         log_pi = log_pi.unsqueeze(-1)
         if self.use_automatic_entropy_tuning:
             alpha_loss = (
