@@ -159,6 +159,25 @@ class FlattenMlp(Mlp):
         return super().forward(flat_inputs, **kwargs)
 
 
+class FlattenSeqMlp(Mlp):
+    """FlattenMlp but takes in a sequence and takes only the last sequence."""
+
+    def __init__(
+        self,
+        dim_to_cat: int = 1,
+        **kwargs,
+    ):
+        self.dim_to_cat = dim_to_cat
+        super().__init__(**kwargs)
+
+    """
+    Flatten inputs along dimension 1 and then pass through MLP.
+    """
+    def forward(self, *inputs, **kwargs):
+        flat_inputs = torch.cat([i[-1] for i in inputs], dim=self.dim_to_cat)
+        return super().forward(flat_inputs, **kwargs)
+
+
 class MlpPolicy(Mlp, Policy):
     """
     A simpler interface for creating policies.
