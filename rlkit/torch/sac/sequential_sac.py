@@ -40,12 +40,18 @@ class SequentialSACTrainer(SACTrainer):
         Policy and Alpha Loss
         """
         dists = self.policy(obs, prev_acts)
-        dist_outputs = [dist.rsample_and_logprob() for dist in dists]
-        new_obs_actions, log_pi = [
-            torch.cat([do[i].unsqueeze(1) for do in dist_outputs], dim=1)
-            for i in range(2)
-        ]
-        if new_obs_actions.shape[1] == 1:  # Check if we are only doing one action.
+        just_one_act = len(dists) == 1
+        if just_one_act:
+            new_obs_actions, log_pi = dists[0].rsample_and_logprob()
+            new_obs_actions = new_obs_actions.unsqueeze(1)
+            log_pi = log_pi.unsqueeze(1)
+        else:
+            dist_outputs = [dist.rsample_and_logprob() for dist in dists]
+            new_obs_actions, log_pi = [
+                torch.cat([do[i].unsqueeze(1) for do in dist_outputs], dim=1)
+                for i in range(2)
+            ]
+        if just_one_act:  # Check if we are only doing one action.
             masks = masks[:, [-1]]
             terminals = terminals[:, [-1]]
             rewards = rewards[:, [-1]]
@@ -72,11 +78,16 @@ class SequentialSACTrainer(SACTrainer):
         q1_pred = self.qf1(obs, actions)
         q2_pred = self.qf2(obs, actions)
         next_dists = self.policy(next_obs, actions)
-        dist_outputs = [dist.rsample_and_logprob() for dist in next_dists]
-        new_next_actions, new_log_pi = [
-            torch.cat([do[i].unsqueeze(1) for do in dist_outputs], dim=1)
-            for i in range(2)
-        ]
+        if just_one_act:
+            new_next_actions, new_log_pi = next_dists[0].rsample_and_logprob()
+            new_next_actions = new_next_actions.unsqueeze(1)
+            new_log_pi = new_log_pi.unsqueeze(1)
+        else:
+            dist_outputs = [dist.rsample_and_logprob() for dist in next_dists]
+            new_next_actions, new_log_pi = [
+                torch.cat([do[i].unsqueeze(1) for do in dist_outputs], dim=1)
+                for i in range(2)
+            ]
         new_log_pi = new_log_pi.unsqueeze(-1)
         target_q_values = torch.min(
             self.target_qf1(next_obs, new_next_actions),
