@@ -160,21 +160,14 @@ class FlattenMlp(Mlp):
 
 
 class FlattenSeqMlp(Mlp):
-    """FlattenMlp but takes in a sequence and takes only the last sequence."""
+    """FlattenMlp but takes in a sequence and takes only the last sequence.
 
-    def __init__(
-        self,
-        dim_to_cat: int = 1,
-        **kwargs,
-    ):
-        self.dim_to_cat = dim_to_cat
-        super().__init__(**kwargs)
+    Very special test use case where the inputs are obs, prev_acts, action. The
+    two former inputs are sequences and we do not care about prev_acts.
+    """
 
-    """
-    Flatten inputs along dimension 1 and then pass through MLP.
-    """
     def forward(self, *inputs, **kwargs):
-        flat_inputs = torch.cat([i[:, [-1]] for i in inputs], dim=self.dim_to_cat)
+        flat_inputs = torch.cat([inputs[0][:, -1], inputs[2]], dim=1)
         return super().forward(flat_inputs, **kwargs)
 
 

@@ -64,7 +64,7 @@ class SequentialTanhGaussianPolicySingle(Mlp, TorchStochasticSequencePolicy):
             stds = torch.exp(log_std)
         else:
             stds = ptu.ones(means.shape) * self.std
-        return [TanhNormal(means, stds) for i in range(means.shape[1])]
+        return TanhNormal(means, stds)
 
     def logprob(self, action, mean, std):
         tanh_normal = TanhNormal(mean, std)
@@ -104,4 +104,4 @@ class SequentialTanhGaussianPolicySingleAdapter(TorchStochasticPolicy):
         """Do a forward pass. It is assumed that the amount of observations
            will remain the same batch size throughout the episode.
         """
-        return self.policy.forward(obs.unsqueeze(1), None)[0]
+        return self.policy.forward(obs.unsqueeze(1), None)

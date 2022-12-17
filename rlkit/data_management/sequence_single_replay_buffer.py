@@ -1,8 +1,9 @@
 """
-A replay buffer that keeps some window of history.
+A replay buffer that keeps some window of history, but it is assumed that
+only the last point will be used for gradient updates.
 
 Author: Ian Char
-Date: December 10, 2022
+Date: December 17, 2022
 """
 from collections import OrderedDict
 from typing import Dict
@@ -12,7 +13,7 @@ from rlkit.envs.env_utils import get_dim
 import numpy as np
 
 
-class SequenceReplayBuffer(ReplayBuffer):
+class SequenceSingleReplayBuffer(ReplayBuffer):
     def __init__(
             self,
             max_replay_buffer_size: int,
@@ -37,14 +38,15 @@ class SequenceReplayBuffer(ReplayBuffer):
         self._max_replay_buffer_size = int(max_replay_buffer_size)
         self._max_path_length = int(max_path_length)
         self._max_data_points = int(max_replay_buffer_size * max_path_length)
+        self._pad_size = self._window_size - 1
         self.clear_buffer()
 
     def clear_buffer(self):
         """Clear all of the buffers."""
         # Initialize datastructures to be 3D tensors now that there is history.
-        # We pad the end of each buffer with 0s since this will make the code much
-        # easier since we don't have to worry as much about valid starts for subseqs.
-        # Also pad the beginning of the action buffer with 1 columns of 0s so that
+        # We pad the end of each beginning with 0s since this will make the code much
+        # easier since we don't have to worry as much about valid ends for subseqs.
+        # Also pad the beginning of the action buffer with additional 1 column so
         # we can access previous actions.
         self._observations = np.zeros(
             (self._max_replay_buffer_size,
@@ -60,11 +62,8 @@ class SequenceReplayBuffer(ReplayBuffer):
         self._terminals = np.zeros(
             (self._max_replay_buffer_size,
              self._max_path_length + self._window_size - 1, 1), dtype='uint8')
-        self._masks = np.zeros(
-            (self._max_replay_buffer_size,
-             self._max_path_length + self._window_size - 1, 1), dtype='uint8')
         # Initialize data structures to keep track of path lengths, top of buffer, etc.
-        self._valid_starts = np.zeros((self._max_data_points,  2), dtype='uint8')
+        self._valid_ends = np.zeros((self._max_data_points,  2), dtype='uint8')
         self._pathlens = np.zeros(self._max_path_length, dtype='uint8')
         self._buffer_top = 0
         self._buffer_size = 0
@@ -80,28 +79,27 @@ class SequenceReplayBuffer(ReplayBuffer):
             path: The path collected as a dictionary of ndarrays.
         """
         pathlen = len(path['actions'])
-        self._observations[self._buffer_top, :pathlen] =\
+        endpt = pathlen + self._pad_size
+        self._observations[self._buffer_top, self._pad_size:endpt] =\
             path['observations']
-        self._observations[self._buffer_top, pathlen] = path['next_observations'][-1]
-        self._actions[self._buffer_top, 1:pathlen + 1] = path['actions']
-        self._rewards[self._buffer_top, :pathlen] = path['rewards']
-        self._terminals[self._buffer_top, :pathlen] = path['terminals']
-        self._masks[self._buffer_top, :pathlen] = 1
-        self._masks[self._buffer_top, pathlen:] = 0
+        self._observations[self._buffer_top, endpt] = path['next_observations'][-1]
+        self._actions[self._buffer_top, self._pad_size + 1:endpt + 1] = path['actions']
+        self._rewards[self._buffer_top, self._pad_size:endpt] = path['rewards']
+        self._terminals[self._buffer_top, self._pad_size:endpt] = path['terminals']
         # Update the valid idxs.
         to_the_end = np.min([self._max_data_points - self._valid_top, pathlen])
         if to_the_end > 0:
-            self._valid_starts[self._valid_top:self._valid_top + to_the_end] =\
+            self._valid_ends[self._valid_top:self._valid_top + to_the_end] =\
                 np.concatenate([s.reshape(-1, 1) for s in [
                                 np.ones(to_the_end) * self._buffer_top,
-                                np.arange(to_the_end)]
+                                np.arange(self._pad_size, self._pad_size + to_the_end)]
                                 ], axis=1)
         if to_the_end < pathlen:
             additional_amt = pathlen - to_the_end
-            self._valid_starts[:additional_amt] = np.concatenate([
+            self._valid_ends[:additional_amt] = np.concatenate([
                 s.reshape(-1, 1) for s in [
                     np.ones(additional_amt) * self._buffer_top,
-                    np.arange(to_the_end, pathlen),
+                    np.arange(self._pad_size + to_the_end, self._pad_size + pathlen),
                 ]
             ], axis=1)
         # Update the size tracker and the tracking pointers..
@@ -113,25 +111,33 @@ class SequenceReplayBuffer(ReplayBuffer):
         Args:
             batch_size: number of sequences to grab.
 
-        Returns: Dictionary of observation, actions, masks, etc.
+        Returns: Dictionary of information for the update.
+            observations: This is a history w shape (batch_size, L, obs_dim)
+            actions: This is the history of actions (batch_size, L, act_dim)
+            rewards: This is the rewards at the last point (batch_size, 1)
+            next_observation: This is a history of nexts (batch_size, L, obs_dim)
+            prev_actions: History of previous actions (batch_size, L, act_dim)
+            terminals: Whether last time step is terminals (batch_size, 1)
         """
         vidxs = (np.random.randint(self._valid_size, size=batch_size)
                  + self._valid_bottom) % self._max_data_points
-        seq_starts = self._valid_starts[vidxs]
+        seq_ends = self._valid_ends[vidxs]
         batch = {}
         for key, buffer in (
                 ('observations', self._observations),
                 ('actions', self._actions),
-                ('rewards', self._rewards),
                 ('next_observations', self._observations),
-                ('prev_actions', self._actions),
-                ('terminals', self._terminals),
-                ('masks', self._masks)):
+                ('prev_actions', self._actions)):
             # Note that the actions are offset by 1 when they are loaded in.
             offset = int(key == 'next_observations' or key == 'actions')
-            batch[key] = buffer[seq_starts[:, 0].reshape(-1, 1),
-                                np.array([seq_starts[:, 1] + i + offset
-                                          for i in range(self._window_size)]).T]
+            batch[key] =\
+                buffer[seq_ends[:, 0].reshape(-1, 1),
+                       np.array([seq_ends[:, 1] - i + offset
+                                 for i in range(self._window_size - 1, -1, -1)]).T]
+        for key, buffer in (
+                ('rewards', self._rewards),
+                ('terminals', self._terminals)):
+            batch[key] = buffer[seq_ends[:, 0], seq_ends[:, 1]]
         return batch
 
     def add_paths(self, paths):
@@ -184,7 +190,7 @@ if __name__ == '__main__':
     """Some testing"""
     import gym
     env = gym.make('Pendulum-v1')
-    buffer = SequenceReplayBuffer(3, env, max_path_length=5, batch_window_size=5)
+    buffer = SequenceSingleReplayBuffer(3, env, max_path_length=5, batch_window_size=5)
     # Fill the buffer with different sized paths.
     pathlens = [1 for _ in range(15)]
     pnum = 0
@@ -217,7 +223,6 @@ if __name__ == '__main__':
     print(buffer._actions[:, :, 0])
     for k in ('prev_actions', 'actions'):
         print(k, batch[k][:, :, 0])
-    print(batch['masks'])
     # Do another path.
     pathlens = [5, 5]
     for pl in pathlens:
