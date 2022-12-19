@@ -64,8 +64,8 @@ class SequenceReplayBuffer(ReplayBuffer):
             (self._max_replay_buffer_size,
              self._max_path_length + self._window_size - 1, 1), dtype='uint8')
         # Initialize data structures to keep track of path lengths, top of buffer, etc.
-        self._valid_starts = np.zeros((self._max_data_points,  2), dtype='uint8')
-        self._pathlens = np.zeros(self._max_path_length, dtype='uint8')
+        self._valid_starts = np.zeros((self._max_data_points,  2), dtype='uint32')
+        self._pathlens = np.zeros(self._max_path_length, dtype='uint16')
         self._buffer_top = 0
         self._buffer_size = 0
         self._valid_top = 0
