@@ -14,6 +14,7 @@ from rlkit.core.loss import LossStatistics
 
 import rlkit.torch.pytorch_util as ptu
 from rlkit.core.eval_util import create_stats_ordered_dict
+from rlkit.core.logging import add_prefix
 from rlkit.torch.sac.sac import SACTrainer, SACLosses
 
 
@@ -107,8 +108,8 @@ class SequentialSingleSACTrainer(SACTrainer):
                 'Log Pis',
                 ptu.get_numpy(log_pi),
             ))
-            # policy_statistics = add_prefix(dist.get_diagnostics(), "policy/")
-            # eval_statistics.update(policy_statistics)
+            policy_statistics = add_prefix(dist.get_diagnostics(), "policy/")
+            eval_statistics.update(policy_statistics)
             if self.use_automatic_entropy_tuning:
                 eval_statistics['Alpha'] = alpha.item()
                 eval_statistics['Alpha Loss'] = alpha_loss.item()

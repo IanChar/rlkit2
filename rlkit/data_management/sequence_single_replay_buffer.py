@@ -31,6 +31,10 @@ class SequenceSingleReplayBuffer(ReplayBuffer):
             max_path_length: The maximum path length to store.
             batch_window_size: The size of window that are in a batch.
         """
+        if max_replay_buffer_size >= 2 ** 32:
+            raise ValueError('Cannot support buffer size greater than 2^32')
+        if max_path_length >= 2 ** 16:
+            raise ValueError('Cannot support path length longer than 2^16')
         self._observation_dim = get_dim(env.observation_space)
         self._action_dim = get_dim(env.action_space)
         self._max_replay_buffer_size = int(max_replay_buffer_size)
@@ -63,8 +67,8 @@ class SequenceSingleReplayBuffer(ReplayBuffer):
             (self._max_replay_buffer_size,
              self._max_path_length + self._window_size - 1, 1), dtype='uint8')
         # Initialize data structures to keep track of path lengths, top of buffer, etc.
-        self._valid_ends = np.zeros((self._max_data_points,  2), dtype='uint8')
-        self._pathlens = np.zeros(self._max_path_length, dtype='uint8')
+        self._valid_ends = np.zeros((self._max_data_points,  2), dtype='uint32')
+        self._pathlens = np.zeros(self._max_replay_buffer_size, dtype='uint16')
         self._buffer_top = 0
         self._buffer_size = 0
         self._valid_top = 0
@@ -192,7 +196,7 @@ if __name__ == '__main__':
     env = gym.make('Pendulum-v1')
     buffer = SequenceSingleReplayBuffer(3, env, max_path_length=5, batch_window_size=5)
     # Fill the buffer with different sized paths.
-    pathlens = [1 for _ in range(15)]
+    pathlens = [5 for _ in range(3)]
     pnum = 0
     for pl in pathlens:
         path = {k: [] for k in ['observations', 'actions', 'rewards', 'terminals']}
@@ -214,15 +218,17 @@ if __name__ == '__main__':
         pnum += 1
     print('=' * 10, f'Path Number {pnum}', '=' * 10)
     print(buffer._observations[:, :, 0])
+    print(buffer._actions[:, :, 0])
+    print(buffer._rewards)
     print(buffer._valid_bottom, buffer._valid_top, buffer._valid_size)
-    print(buffer._valid_starts)
-    print(buffer._valid_starts)
+    print(buffer._valid_ends)
     batch = buffer.random_batch(2)
     for k in ('observations', 'next_observations'):
         print(k, batch[k][:, :, 0])
     print(buffer._actions[:, :, 0])
     for k in ('prev_actions', 'actions'):
         print(k, batch[k][:, :, 0])
+    print('rewards', batch['rewards'])
     # Do another path.
     pathlens = [5, 5]
     for pl in pathlens:
@@ -246,4 +252,4 @@ if __name__ == '__main__':
         print('=' * 10, f'Path Number {pnum}', '=' * 10)
         print(buffer._observations[:, :, 0])
         print(buffer._valid_bottom, buffer._valid_top, buffer._valid_size)
-        print(buffer._valid_starts)
+        print(buffer._valid_ends)
