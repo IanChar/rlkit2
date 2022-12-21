@@ -102,6 +102,23 @@ class SACTrainer(TorchTrainer, LossFunction):
             batch,
             skip_statistics=not self._need_to_update_eval_statistics,
         )
+
+        """
+        Gradient logging helper function
+        """
+        def log_grad(output, stats, root_name, depth = 1):
+
+            for grad_fn, input in output.next_functions:
+
+                stats.update(create_stats_ordered_dict(
+                    f"{root_name} / {input[1].name}",
+                    ptu.get_numpy(input[1].grad)
+                ))
+
+                if depth > 1:
+                    log_grad(input, stats, input[1].name, depth - 1)
+
+
         """
         Update networks
         """
@@ -112,14 +129,17 @@ class SACTrainer(TorchTrainer, LossFunction):
 
         self.policy_optimizer.zero_grad()
         losses.policy_loss.backward()
+        log_grad(losses.policy_loss, stats, 'policy_loss', depth=1)
         self.policy_optimizer.step()
 
         self.qf1_optimizer.zero_grad()
         losses.qf1_loss.backward()
+        log_grad(losses.qf1_loss, stats, 'qf1_loss', depth=2)
         self.qf1_optimizer.step()
 
         self.qf2_optimizer.zero_grad()
         losses.qf2_loss.backward()
+        log_grad(losses.qf2_loss, stats, 'qf2_loss', depth=2)
         self.qf2_optimizer.step()
 
         self._n_train_steps_total += 1
