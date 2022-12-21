@@ -249,7 +249,8 @@ class SACNTrainer(TorchTrainer, LossFunction):
     def get_networks(num_critics,
                      obs_dim,
                      action_dim,
-                     layer_size,
+                     layer_size):
+        M = layer_size
         qf_list = [FlattenMlp(
                        input_size=obs_dim + action_dim,
                        output_size=1,
@@ -266,6 +267,6 @@ class SACNTrainer(TorchTrainer, LossFunction):
             hidden_sizes=[M, M],
         )
         networks = {'qf_list': qf_list,
-                    'target_qf_list', target_qf_list,
+                    'target_qf_list': target_qf_list,
                     'policy': policy}
         return networks

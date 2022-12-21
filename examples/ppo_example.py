@@ -112,7 +112,7 @@ if __name__ == "__main__":
             target_lookahead=15,
         ),
         policy_kwargs=dict(
-            std=args.fixed_std,
+            std=None,
         ),
     )
     setup_logger('ppo-%s-baseline' % args.env, variant=variant)

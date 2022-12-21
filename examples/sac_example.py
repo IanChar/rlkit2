@@ -87,7 +87,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--env', required=True)
     parser.add_argument('--epochs', type=int, default=3000)
-    parser.add_argument('--save_every', type=int)
+    parser.add_argument('--save_every', type=int, default=1)
     parser.add_argument('--min_num_steps_before_training', type=int, default=1000)
     parser.add_argument('--layer_size', type=int, default=256)
     parser.add_argument('--pudb', action='store_true')
