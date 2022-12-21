@@ -223,18 +223,15 @@ class SACNTrainer(TorchTrainer, LossFunction):
     def networks(self):
         return [
             self.policy,
-            self.qf1,
-            self.qf2,
-            self.target_qf1,
-            self.target_qf2,
+            *self.qf_list,
+            *self.target_qf_list,
         ]
 
     @property
     def optimizers(self):
         return [
             self.alpha_optimizer,
-            self.qf1_optimizer,
-            self.qf2_optimizer,
+            *self.qf_optimizers,
             self.policy_optimizer,
         ]
 
