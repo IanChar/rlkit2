@@ -16,6 +16,9 @@ from rlkit.torch.networks import Mlp
 from rlkit.torch.modules import LayerNorm
 
 
+def identity(x):
+        return x
+
 
 class ParallelizedLayerMLP(nn.Module):
 
@@ -87,7 +90,7 @@ class ParallelizedEnsembleFlattenMLP(nn.Module):
                 output_dim=next_size,
             )
             for j in self.elites:
-                hidden_init(fc.W[j], w_scale)
+                hidden_init(fc.W[j])
                 fc.b[j].data.fill_(b_init_value)
             self.__setattr__('fc%d'% i, fc)
             self.fcs.append(fc)

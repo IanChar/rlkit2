@@ -12,7 +12,7 @@ import rlkit.torch.pytorch_util as ptu
 from rlkit.core.eval_util import create_stats_ordered_dict
 from rlkit.torch.torch_rl_algorithm import TorchTrainer
 from rlkit.core.logging import add_prefix
-from rlkit.torch.networks import FlattenMlp
+from rlkit.torch.networks import FlattenMlp, ParallelizedEnsembleFlattenMLP
 from rlkit.torch.sac.policies import TanhGaussianPolicy
 import gtimer as gt
 
@@ -147,7 +147,6 @@ class SACNTrainer(TorchTrainer, LossFunction):
         """
         Policy and Alpha Loss
         """
-        breakpoint()
         dist = self.policy(obs)
         new_obs_actions, log_pi = dist.rsample_and_logprob()
         log_pi = log_pi.unsqueeze(-1)
@@ -158,7 +157,6 @@ class SACNTrainer(TorchTrainer, LossFunction):
             alpha_loss = 0
             alpha = 1
 
-        # shouldn't this be minimum
         q_new_actions = self.qfs.sample(obs, new_obs_actions)
 
         policy_loss = (alpha*log_pi - q_new_actions).mean()
@@ -170,11 +168,10 @@ class SACNTrainer(TorchTrainer, LossFunction):
         next_dist = self.policy(next_obs)
         new_next_actions, new_log_pi = next_dist.rsample_and_logprob()
         new_log_pi = new_log_pi.unsqueeze(-1)
-        # shouldn't this also be minimum
         target_q_values = self.target_qfs.sample(next_obs, new_next_actions)
 
         q_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_q_values
-        q_target = q_target.detach().unsqueeze(0)
+        q_target = torch.tile(q_target.detach().unsqueeze(0), (self.num_qs, 1, 1))
         if self.max_value is not None:
             q_target = torch.clamp(q_target, max=self.max_value)
         qf_losses = self.qf_criterion(qs_pred, q_target).mean(dim=(1, 2))
@@ -204,7 +201,7 @@ class SACNTrainer(TorchTrainer, LossFunction):
         """
         eval_statistics = OrderedDict()
         if not skip_statistics:
-            eval_statistics['QF Mean Loss'] = ptu.get_numpy(qf_mean_loss)
+            eval_statistics['QF Mean Loss'] = ptu.get_numpy(mean_qf_loss)
             eval_statistics['QF Std Loss'] = np.std(ptu.get_numpy(qf_losses))
             eval_statistics['Policy Loss'] = np.mean(ptu.get_numpy(
                 policy_loss
@@ -267,14 +264,14 @@ class SACNTrainer(TorchTrainer, LossFunction):
                      layer_size,
                      num_layers=2):
         M = layer_size
-        qfs = ParallelizedLayerMLP(
-                ensemble_size=ensemble_size,
+        qfs = ParallelizedEnsembleFlattenMLP(
+                ensemble_size=num_critics,
                 input_size=obs_dim + action_dim,
                 hidden_sizes=[M] * num_layers,
                 output_size=1,
                 layer_norm=None)
-        target_qfs = ParallelizedLayerMLP(
-                ensemble_size=ensemble_size,
+        target_qfs = ParallelizedEnsembleFlattenMLP(
+                ensemble_size=num_critics,
                 input_size=obs_dim + action_dim,
                 hidden_sizes=[M] * num_layers,
                 output_size=1,
