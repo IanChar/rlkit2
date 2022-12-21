@@ -26,8 +26,8 @@ class SACNTrainer(TorchTrainer, LossFunction):
             self,
             env,
             policy,
-            qf_list,
-            target_qf_list,
+            qfs,
+            target_qfs,
 
             discount=0.99,
             reward_scale=1.0,
@@ -51,9 +51,9 @@ class SACNTrainer(TorchTrainer, LossFunction):
         super().__init__()
         self.env = env
         self.policy = policy
-        self.qf_list = qf_list
-        self.target_qf_list = target_qf_list
-        self.num_qs = len(self.qf_list)
+        self.qfs = qfs
+        self.target_qfs = target_qfs
+        self.num_qs = self.qfs.ensemble_size
         self.soft_target_tau = soft_target_tau
         self.target_update_period = target_update_period
         self.max_value = max_value
@@ -76,7 +76,7 @@ class SACNTrainer(TorchTrainer, LossFunction):
         self.plotter = plotter
         self.render_eval_paths = render_eval_paths
 
-        self.qf_criterion = nn.MSELoss()
+        self.qf_criterion = nn.MSELoss(reduction='none')
         self.vf_criterion = nn.MSELoss()
 
         self.policy_optimizer = optimizer_class(
@@ -84,7 +84,7 @@ class SACNTrainer(TorchTrainer, LossFunction):
             lr=policy_lr,
         )
         self.qf_optimizer = optimizer_class(
-            self.qf_list.parameters(),
+            self.qfs.parameters(),
             lr=qf_lr)
 
         self.discount = discount
@@ -129,10 +129,9 @@ class SACNTrainer(TorchTrainer, LossFunction):
             self.update_target_networks()
 
     def update_target_networks(self):
-        for qf, target_qf in zip(self.qf_list, self.target_qf_list):
-            ptu.soft_update_from_to(
-                qf, target_qf, self.soft_target_tau
-            )
+        ptu.soft_update_from_to(
+            self.qfs, self.target_qfs, self.soft_target_tau
+        )
 
     def compute_loss(
         self,
@@ -148,6 +147,7 @@ class SACNTrainer(TorchTrainer, LossFunction):
         """
         Policy and Alpha Loss
         """
+        breakpoint()
         dist = self.policy(obs)
         new_obs_actions, log_pi = dist.rsample_and_logprob()
         log_pi = log_pi.unsqueeze(-1)
@@ -159,28 +159,27 @@ class SACNTrainer(TorchTrainer, LossFunction):
             alpha = 1
 
         # shouldn't this be minimum
-        q_new_actions = torch.min(torch.cat([
-            qf(obs, new_obs_actions) for qf in self.qf_list], dim=-1), dim=-1).values[:, None]
+        q_new_actions = self.qfs.sample(obs, new_obs_actions)
+
         policy_loss = (alpha*log_pi - q_new_actions).mean()
 
         """
         QF Loss
         """
-        q_preds = [qf(obs, actions) for qf in self.qf_list]
+        qs_pred = self.qfs(obs, actions)
         next_dist = self.policy(next_obs)
         new_next_actions, new_log_pi = next_dist.rsample_and_logprob()
         new_log_pi = new_log_pi.unsqueeze(-1)
         # shouldn't this also be minimum
-        target_q_values = torch.min(torch.cat([
-            target_qf(next_obs, new_next_actions) for target_qf in self.target_qf_list],
-            dim=-1), dim=-1).values[:, None] - alpha * new_log_pi
+        target_q_values = self.target_qfs.sample(next_obs, new_next_actions)
 
         q_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_q_values
-        q_target = q_target.detach()
+        q_target = q_target.detach().unsqueeze(0)
         if self.max_value is not None:
             q_target = torch.clamp(q_target, max=self.max_value)
-        qf_losses = torch.stack([self.qf_criterion(q_pred, q_target) for q_pred in q_preds])
-        mean_qf_loss = torch.mean(qf_losses)
+        qf_losses = self.qf_criterion(qs_pred, q_target).mean(dim=(1, 2))
+        mean_qf_loss = qf_losses.mean()
+        total_qf_loss = qf_losses.sum()
 
         """
         Diversity Loss
@@ -188,8 +187,7 @@ class SACNTrainer(TorchTrainer, LossFunction):
         if self.eta > 0:
             obs_tile = obs.unsqueeze(0).repeat(self.num_qs, 1, 1)
             actions_tile = actions.unsqueeze(0).repeat(self.num_qs, 1, 1).requires_grad_(True)
-            qs_preds_tile = torch.stack([qf(obs_tile[i, ...], actions_tile[i, ...]) for i, qf in enumerate(self.qf_list)])
-            # qs_preds_tile = self.qfs(obs_tile, actions_tile)
+            qs_preds_tile = self.qfs(obs_tile, actions_tile)
 
             qs_pred_grads, = torch.autograd.grad(qs_preds_tile.sum(), actions_tile, retain_graph=True, create_graph=True)
             qs_pred_grads = qs_pred_grads / (torch.norm(qs_pred_grads, p=2, dim=2).unsqueeze(-1) + 1e-10)
@@ -200,14 +198,14 @@ class SACNTrainer(TorchTrainer, LossFunction):
             qs_pred_grads = (1 - masks) * qs_pred_grads
             grad_loss = torch.mean(torch.sum(qs_pred_grads, dim=(1, 2))) / (self.num_qs - 1)
 
-            mean_qf_loss += self.eta * grad_loss
+            total_qf_loss += self.eta * grad_loss
         """
         Save some statistics for eval
         """
         eval_statistics = OrderedDict()
         if not skip_statistics:
-            eval_statistics['QF Mean Loss'] = np.mean([ptu.get_numpy(qf_loss) for qf_loss in qf_losses])
-            eval_statistics['QF Std Loss'] = np.std([ptu.get_numpy(qf_loss) for qf_loss in qf_losses])
+            eval_statistics['QF Mean Loss'] = ptu.get_numpy(qf_mean_loss)
+            eval_statistics['QF Std Loss'] = np.std(ptu.get_numpy(qf_losses))
             eval_statistics['Policy Loss'] = np.mean(ptu.get_numpy(
                 policy_loss
             ))
@@ -225,7 +223,7 @@ class SACNTrainer(TorchTrainer, LossFunction):
 
         loss = SACNLosses(
             policy_loss=policy_loss,
-            qf_loss=mean_qf_loss,
+            qf_loss=total_qf_loss,
             alpha_loss=alpha_loss,
         )
 
@@ -243,47 +241,50 @@ class SACNTrainer(TorchTrainer, LossFunction):
     def networks(self):
         return [
             self.policy,
-            *self.qf_list,
-            *self.target_qf_list,
+            self.qfs,
+            self.target_qfs,
         ]
 
     @property
     def optimizers(self):
         return [
             self.alpha_optimizer,
-            *self.qf_optimizers,
+            self.qf_optimizer,
             self.policy_optimizer,
         ]
 
     def get_snapshot(self):
         return dict(
             policy=self.policy,
-            qf_list=self.qf_list,
-            target_qf_list=self.target_qf_list,
+            qfs=self.qfs,
+            target_qfs=self.target_qfs,
         )
 
     @staticmethod
     def get_networks(num_critics,
                      obs_dim,
                      action_dim,
-                     layer_size):
+                     layer_size,
+                     num_layers=2):
         M = layer_size
-        qf_list = nn.ModuleList([FlattenMlp(
-                       input_size=obs_dim + action_dim,
-                       output_size=1,
-                       hidden_sizes=[M, M],
-                  ) for _ in range(num_critics)])
-        target_qf_list = nn.ModuleList([FlattenMlp(
-                              input_size=obs_dim + action_dim,
-                              output_size=1,
-                              hidden_sizes=[M, M],
-                         ) for _ in range(num_critics)])
+        qfs = ParallelizedLayerMLP(
+                ensemble_size=ensemble_size,
+                input_size=obs_dim + action_dim,
+                hidden_sizes=[M] * num_layers,
+                output_size=1,
+                layer_norm=None)
+        target_qfs = ParallelizedLayerMLP(
+                ensemble_size=ensemble_size,
+                input_size=obs_dim + action_dim,
+                hidden_sizes=[M] * num_layers,
+                output_size=1,
+                layer_norm=None)
         policy = TanhGaussianPolicy(
             obs_dim=obs_dim,
             action_dim=action_dim,
             hidden_sizes=[M, M],
         )
-        networks = {'qf_list': qf_list,
-                    'target_qf_list': target_qf_list,
+        networks = {'qfs': qfs,
+                    'target_qfs': target_qfs,
                     'policy': policy}
         return networks
