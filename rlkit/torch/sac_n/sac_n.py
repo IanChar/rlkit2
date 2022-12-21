@@ -1,5 +1,6 @@
 from collections import OrderedDict, namedtuple
 from typing import Tuple
+from itertools import chain
 
 import numpy as np
 import torch
@@ -17,7 +18,7 @@ import gtimer as gt
 
 SACNLosses = namedtuple(
     'SACNLosses',
-    'policy_loss qf_losses alpha_loss',
+    'policy_loss qf_loss alpha_loss',
 )
 
 class SACNTrainer(TorchTrainer, LossFunction):
@@ -39,6 +40,7 @@ class SACNTrainer(TorchTrainer, LossFunction):
             target_update_period=1,
             plotter=None,
             render_eval_paths=False,
+            eta=1.,
 
             use_automatic_entropy_tuning=True,
             target_entropy=None,
@@ -51,9 +53,11 @@ class SACNTrainer(TorchTrainer, LossFunction):
         self.policy = policy
         self.qf_list = qf_list
         self.target_qf_list = target_qf_list
+        self.num_qs = len(self.qf_list)
         self.soft_target_tau = soft_target_tau
         self.target_update_period = target_update_period
         self.max_value = max_value
+        self.eta = eta
 
         self.use_automatic_entropy_tuning = use_automatic_entropy_tuning
         if self.use_automatic_entropy_tuning:
@@ -79,10 +83,9 @@ class SACNTrainer(TorchTrainer, LossFunction):
             self.policy.parameters(),
             lr=policy_lr,
         )
-        self.qf_optimizers = [optimizer_class(
-            qf.parameters(),
-            lr=qf_lr,
-        ) for qf in self.qf_list]
+        self.qf_optimizer = optimizer_class(
+            self.qf_list.parameters(),
+            lr=qf_lr)
 
         self.discount = discount
         self.reward_scale = reward_scale
@@ -108,10 +111,9 @@ class SACNTrainer(TorchTrainer, LossFunction):
         losses.policy_loss.backward()
         self.policy_optimizer.step()
 
-        for opt, loss in zip(self.qf_optimizers, losses.q_losses):
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
+        self.qf_optimizer.zero_grad()
+        losses.qf_loss.backward()
+        self.qf_optimizer.step()
 
         self._n_train_steps_total += 1
 
@@ -156,14 +158,9 @@ class SACNTrainer(TorchTrainer, LossFunction):
             alpha_loss = 0
             alpha = 1
 
-        breakpoint()
         # shouldn't this be minimum
-        q_new_actions = torch.minimum(*[
-            qf(obs, new_obs_actions) for qf in self.qf_list])
-        old_q_new_actions = torch.min(
-            self.qf1(obs, new_obs_actions),
-            self.qf2(obs, new_obs_actions),
-        )
+        q_new_actions = torch.min(torch.cat([
+            qf(obs, new_obs_actions) for qf in self.qf_list], dim=-1), dim=-1).values[:, None]
         policy_loss = (alpha*log_pi - q_new_actions).mean()
 
         """
@@ -174,15 +171,36 @@ class SACNTrainer(TorchTrainer, LossFunction):
         new_next_actions, new_log_pi = next_dist.rsample_and_logprob()
         new_log_pi = new_log_pi.unsqueeze(-1)
         # shouldn't this also be minimum
-        target_q_values = torch.minimum(*[
-            target_qf(next_obs, new_next_actions) for target_qf in self.target_qf_list]) - alpha * new_log_pi
+        target_q_values = torch.min(torch.cat([
+            target_qf(next_obs, new_next_actions) for target_qf in self.target_qf_list],
+            dim=-1), dim=-1).values[:, None] - alpha * new_log_pi
 
         q_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_q_values
         q_target = q_target.detach()
         if self.max_value is not None:
             q_target = torch.clamp(q_target, max=self.max_value)
-        qf_losses = [self.qf_criterion(q_pred, q_target) for q_pred in q_preds]
+        qf_losses = torch.stack([self.qf_criterion(q_pred, q_target) for q_pred in q_preds])
+        mean_qf_loss = torch.mean(qf_losses)
 
+        """
+        Diversity Loss
+        """
+        if self.eta > 0:
+            obs_tile = obs.unsqueeze(0).repeat(self.num_qs, 1, 1)
+            actions_tile = actions.unsqueeze(0).repeat(self.num_qs, 1, 1).requires_grad_(True)
+            qs_preds_tile = torch.stack([qf(obs_tile[i, ...], actions_tile[i, ...]) for i, qf in enumerate(self.qf_list)])
+            # qs_preds_tile = self.qfs(obs_tile, actions_tile)
+
+            qs_pred_grads, = torch.autograd.grad(qs_preds_tile.sum(), actions_tile, retain_graph=True, create_graph=True)
+            qs_pred_grads = qs_pred_grads / (torch.norm(qs_pred_grads, p=2, dim=2).unsqueeze(-1) + 1e-10)
+            qs_pred_grads = qs_pred_grads.transpose(0, 1)
+
+            qs_pred_grads = torch.einsum('bik,bjk->bij', qs_pred_grads, qs_pred_grads)
+            masks = torch.eye(self.num_qs, device=ptu.device).unsqueeze(dim=0).repeat(qs_pred_grads.size(0), 1, 1)
+            qs_pred_grads = (1 - masks) * qs_pred_grads
+            grad_loss = torch.mean(torch.sum(qs_pred_grads, dim=(1, 2))) / (self.num_qs - 1)
+
+            mean_qf_loss += self.eta * grad_loss
         """
         Save some statistics for eval
         """
@@ -202,10 +220,12 @@ class SACNTrainer(TorchTrainer, LossFunction):
             if self.use_automatic_entropy_tuning:
                 eval_statistics['Alpha'] = alpha.item()
                 eval_statistics['Alpha Loss'] = alpha_loss.item()
+            if self.eta > 0.:
+                eval_statistics['Grad Loss'] = ptu.get_numpy(grad_loss)
 
         loss = SACNLosses(
             policy_loss=policy_loss,
-            qf_losses=qf_losses,
+            qf_loss=mean_qf_loss,
             alpha_loss=alpha_loss,
         )
 
@@ -248,16 +268,16 @@ class SACNTrainer(TorchTrainer, LossFunction):
                      action_dim,
                      layer_size):
         M = layer_size
-        qf_list = [FlattenMlp(
+        qf_list = nn.ModuleList([FlattenMlp(
                        input_size=obs_dim + action_dim,
                        output_size=1,
                        hidden_sizes=[M, M],
-                  ) for _ in range(num_critics)]
-        target_qf_list = [FlattenMlp(
+                  ) for _ in range(num_critics)])
+        target_qf_list = nn.ModuleList([FlattenMlp(
                               input_size=obs_dim + action_dim,
                               output_size=1,
                               hidden_sizes=[M, M],
-                         ) for _ in range(num_critics)]
+                         ) for _ in range(num_critics)])
         policy = TanhGaussianPolicy(
             obs_dim=obs_dim,
             action_dim=action_dim,
