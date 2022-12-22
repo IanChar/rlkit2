@@ -57,6 +57,10 @@ class SACTrainer(TorchTrainer, LossFunction):
         self.target_update_period = target_update_period
         self.max_value = max_value
 
+        self.target_output_name = ""
+        self.gradient_logging_counter = 0
+        self.gradient_logging_interval = 100
+
         self.use_automatic_entropy_tuning = use_automatic_entropy_tuning
         if self.use_automatic_entropy_tuning:
             if target_entropy is None:
@@ -104,22 +108,6 @@ class SACTrainer(TorchTrainer, LossFunction):
         )
 
         """
-        Gradient logging helper function
-        """
-        def log_grad(output, stats, root_name, depth = 1):
-
-            for grad_fn, input in output.next_functions:
-
-                stats.update(create_stats_ordered_dict(
-                    f"{root_name} / {input[1].name}",
-                    ptu.get_numpy(input[1].grad)
-                ))
-
-                if depth > 1:
-                    log_grad(input, stats, input[1].name, depth - 1)
-
-
-        """
         Update networks
         """
         if self.use_automatic_entropy_tuning:
@@ -128,18 +116,18 @@ class SACTrainer(TorchTrainer, LossFunction):
             self.alpha_optimizer.step()
 
         self.policy_optimizer.zero_grad()
+        self.target_output_name = "policy_loss"
         losses.policy_loss.backward()
-        log_grad(losses.policy_loss, stats, 'policy_loss', depth=1)
         self.policy_optimizer.step()
 
         self.qf1_optimizer.zero_grad()
+        self.target_output_name = "qf1_loss"
         losses.qf1_loss.backward()
-        log_grad(losses.qf1_loss, stats, 'qf1_loss', depth=2)
         self.qf1_optimizer.step()
 
         self.qf2_optimizer.zero_grad()
+        self.target_output_name = "qf2_loss"
         losses.qf2_loss.backward()
-        log_grad(losses.qf2_loss, stats, 'qf2_loss', depth=2)
         self.qf2_optimizer.step()
 
         self._n_train_steps_total += 1
@@ -162,6 +150,15 @@ class SACTrainer(TorchTrainer, LossFunction):
         ptu.soft_update_from_to(
             self.qf2, self.target_qf2, self.soft_target_tau
         )
+
+    """
+    Gradient logging helper function to be registered as hooks
+    """
+    def log_grad(self, stats, var_name, grad):
+        stats.update(create_stats_ordered_dict(
+            f"{self.target_output_name} / {var_name}",
+            ptu.get_numpy(grad)
+        ))
 
     def compute_loss(
         self,
@@ -245,12 +242,36 @@ class SACTrainer(TorchTrainer, LossFunction):
                 eval_statistics['Alpha'] = alpha.item()
                 eval_statistics['Alpha Loss'] = alpha_loss.item()
 
+            """
+            Register hooks to save the losses and policy gradients during training
+            log_grad() refers to the SACTrainer object's self.target_output_name and creates a new object '<self.target_output_name> / <variable_name> in eval stats
+            """
+            h1 = q1_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF1', grad))
+            h2 = q2_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF2', grad))
+            h3 = rewards.register_hook(lambda grad: self.log_grad(eval_statistics, 'Rewards', grad))
+            h4 = terminals.register_hook(lambda grad: self.log_grad(eval_statistics, 'Terminals', grad))
+            h5 = obs.register_hook(lambda grad: self.log_grad(eval_statistics, 'Obs', grad))
+            h6 = actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'Actions', grad))
+            h7 = new_obs_actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'New Obs Actions', grad))
+
+        else:
+
+            h1.remove()
+            h2.remove()
+            h3.remove()
+            h4.remove()
+            h5.remove()
+            h6.remove()
+            h7.remove()
+
+
         loss = SACLosses(
             policy_loss=policy_loss,
             qf1_loss=qf1_loss,
             qf2_loss=qf2_loss,
             alpha_loss=alpha_loss,
         )
+
 
         return loss, eval_statistics
 
