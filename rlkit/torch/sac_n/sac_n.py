@@ -1,5 +1,6 @@
 from collections import OrderedDict, namedtuple
 from typing import Tuple
+from itertools import chain
 
 import numpy as np
 import torch
@@ -11,22 +12,22 @@ import rlkit.torch.pytorch_util as ptu
 from rlkit.core.eval_util import create_stats_ordered_dict
 from rlkit.torch.torch_rl_algorithm import TorchTrainer
 from rlkit.core.logging import add_prefix
+from rlkit.torch.networks import FlattenMlp, ParallelizedEnsembleFlattenMLP
+from rlkit.torch.sac.policies import TanhGaussianPolicy
 import gtimer as gt
 
-SACLosses = namedtuple(
-    'SACLosses',
-    'policy_loss qf1_loss qf2_loss alpha_loss',
+SACNLosses = namedtuple(
+    'SACNLosses',
+    'policy_loss qf_loss alpha_loss',
 )
 
-class SACTrainer(TorchTrainer, LossFunction):
+class SACNTrainer(TorchTrainer, LossFunction):
     def __init__(
             self,
             env,
             policy,
-            qf1,
-            qf2,
-            target_qf1,
-            target_qf2,
+            qfs,
+            target_qfs,
 
             discount=0.99,
             reward_scale=1.0,
@@ -39,6 +40,7 @@ class SACTrainer(TorchTrainer, LossFunction):
             target_update_period=1,
             plotter=None,
             render_eval_paths=False,
+            eta=1.,
 
             use_automatic_entropy_tuning=True,
             target_entropy=None,
@@ -49,17 +51,13 @@ class SACTrainer(TorchTrainer, LossFunction):
         super().__init__()
         self.env = env
         self.policy = policy
-        self.qf1 = qf1
-        self.qf2 = qf2
-        self.target_qf1 = target_qf1
-        self.target_qf2 = target_qf2
+        self.qfs = qfs
+        self.target_qfs = target_qfs
+        self.num_qs = self.qfs.ensemble_size
         self.soft_target_tau = soft_target_tau
         self.target_update_period = target_update_period
         self.max_value = max_value
-
-        self.target_output_name = ""
-        self.gradient_logging_counter = 0
-        self.gradient_logging_interval = 100
+        self.eta = eta
 
         self.use_automatic_entropy_tuning = use_automatic_entropy_tuning
         if self.use_automatic_entropy_tuning:
@@ -78,29 +76,22 @@ class SACTrainer(TorchTrainer, LossFunction):
         self.plotter = plotter
         self.render_eval_paths = render_eval_paths
 
-        self.qf_criterion = nn.MSELoss()
+        self.qf_criterion = nn.MSELoss(reduction='none')
         self.vf_criterion = nn.MSELoss()
 
         self.policy_optimizer = optimizer_class(
             self.policy.parameters(),
             lr=policy_lr,
         )
-        self.qf1_optimizer = optimizer_class(
-            self.qf1.parameters(),
-            lr=qf_lr,
-        )
-        self.qf2_optimizer = optimizer_class(
-            self.qf2.parameters(),
-            lr=qf_lr,
-        )
+        self.qf_optimizer = optimizer_class(
+            self.qfs.parameters(),
+            lr=qf_lr)
 
         self.discount = discount
         self.reward_scale = reward_scale
         self._n_train_steps_total = 0
         self._need_to_update_eval_statistics = True
         self.eval_statistics = OrderedDict()
-        self.h1 = None
-        self.h2 = None
 
     def train_from_torch(self, batch):
         gt.blank_stamp()
@@ -108,7 +99,20 @@ class SACTrainer(TorchTrainer, LossFunction):
             batch,
             skip_statistics=not self._need_to_update_eval_statistics,
         )
+        """
+        Gradient logging helper function
+        """
+        def log_grad(output, stats, root_name, depth = 1):
 
+            for grad_fn, input in output.next_functions:
+
+                stats.update(create_stats_ordered_dict(
+                    f"{root_name} / {input[1].name}",
+                    ptu.get_numpy(input[1].grad)
+                ))
+
+                if depth > 1:
+                    log_grad(input, stats, input[1].name, depth - 1)
         """
         Update networks
         """
@@ -118,19 +122,14 @@ class SACTrainer(TorchTrainer, LossFunction):
             self.alpha_optimizer.step()
 
         self.policy_optimizer.zero_grad()
-        self.target_output_name = "policy_loss"
         losses.policy_loss.backward()
+        log_grad(losses.policy_loss, stats, 'policy_loss', depth=1)
         self.policy_optimizer.step()
 
-        self.qf1_optimizer.zero_grad()
-        self.target_output_name = "qf1_loss"
-        losses.qf1_loss.backward()
-        self.qf1_optimizer.step()
-
-        self.qf2_optimizer.zero_grad()
-        self.target_output_name = "qf2_loss"
-        losses.qf2_loss.backward()
-        self.qf2_optimizer.step()
+        self.qf_optimizer.zero_grad()
+        losses.qf_loss.backward()
+        log_grad(losses.qf_loss, stats, 'qf_loss', depth=2)
+        self.qf_optimizer.step()
 
         self._n_train_steps_total += 1
 
@@ -147,26 +146,14 @@ class SACTrainer(TorchTrainer, LossFunction):
 
     def update_target_networks(self):
         ptu.soft_update_from_to(
-            self.qf1, self.target_qf1, self.soft_target_tau
+            self.qfs, self.target_qfs, self.soft_target_tau
         )
-        ptu.soft_update_from_to(
-            self.qf2, self.target_qf2, self.soft_target_tau
-        )
-
-    """
-    Gradient logging helper function to be registered as hooks
-    """
-    def log_grad(self, stats, var_name, grad):
-        stats.update(create_stats_ordered_dict(
-            f"{self.target_output_name} / {var_name} grad",
-            ptu.get_numpy(grad)
-        ))
 
     def compute_loss(
         self,
         batch,
         skip_statistics=False,
-    ) -> Tuple[SACLosses, LossStatistics]:
+    ) -> Tuple[SACNLosses, LossStatistics]:
         rewards = batch['rewards']
         terminals = batch['terminals']
         obs = batch['observations']
@@ -186,54 +173,54 @@ class SACTrainer(TorchTrainer, LossFunction):
             alpha_loss = 0
             alpha = 1
 
-        q_new_actions = torch.min(
-            self.qf1(obs, new_obs_actions),
-            self.qf2(obs, new_obs_actions),
-        )
+        q_new_actions = self.qfs.sample(obs, new_obs_actions)
+
         policy_loss = (alpha*log_pi - q_new_actions).mean()
 
         """
         QF Loss
         """
-        q1_pred = self.qf1(obs, actions)
-        q2_pred = self.qf2(obs, actions)
+        qs_pred = self.qfs(obs, actions)
         next_dist = self.policy(next_obs)
         new_next_actions, new_log_pi = next_dist.rsample_and_logprob()
         new_log_pi = new_log_pi.unsqueeze(-1)
-        target_q_values = torch.min(
-            self.target_qf1(next_obs, new_next_actions),
-            self.target_qf2(next_obs, new_next_actions),
-        ) - alpha * new_log_pi
+        target_q_values = self.target_qfs.sample(next_obs, new_next_actions)
 
         q_target = self.reward_scale * rewards + (1. - terminals) * self.discount * target_q_values
-        q_target = q_target.detach()
+        q_target = torch.tile(q_target.detach().unsqueeze(0), (self.num_qs, 1, 1))
         if self.max_value is not None:
             q_target = torch.clamp(q_target, max=self.max_value)
-        qf1_loss = self.qf_criterion(q1_pred, q_target)
-        qf2_loss = self.qf_criterion(q2_pred, q_target)
+        qf_losses = self.qf_criterion(qs_pred, q_target).mean(dim=(1, 2))
+        mean_qf_loss = qf_losses.mean()
+        total_qf_loss = qf_losses.sum()
 
+        """
+        Diversity Loss
+        """
+        if self.eta > 0:
+            obs_tile = obs.unsqueeze(0).repeat(self.num_qs, 1, 1)
+            actions_tile = actions.unsqueeze(0).repeat(self.num_qs, 1, 1).requires_grad_(True)
+            qs_preds_tile = self.qfs(obs_tile, actions_tile)
+
+            qs_pred_grads, = torch.autograd.grad(qs_preds_tile.sum(), actions_tile, retain_graph=True, create_graph=True)
+            qs_pred_grads = qs_pred_grads / (torch.norm(qs_pred_grads, p=2, dim=2).unsqueeze(-1) + 1e-10)
+            qs_pred_grads = qs_pred_grads.transpose(0, 1)
+
+            qs_pred_grads = torch.einsum('bik,bjk->bij', qs_pred_grads, qs_pred_grads)
+            masks = torch.eye(self.num_qs, device=ptu.device).unsqueeze(dim=0).repeat(qs_pred_grads.size(0), 1, 1)
+            qs_pred_grads = (1 - masks) * qs_pred_grads
+            grad_loss = torch.mean(torch.sum(qs_pred_grads, dim=(1, 2))) / (self.num_qs - 1)
+
+            total_qf_loss += self.eta * grad_loss
         """
         Save some statistics for eval
         """
         eval_statistics = OrderedDict()
         if not skip_statistics:
-
-            eval_statistics['QF1 Loss'] = np.mean(ptu.get_numpy(qf1_loss))
-            eval_statistics['QF2 Loss'] = np.mean(ptu.get_numpy(qf2_loss))
+            eval_statistics['QF Mean Loss'] = ptu.get_numpy(mean_qf_loss)
+            eval_statistics['QF Std Loss'] = np.std(ptu.get_numpy(qf_losses))
             eval_statistics['Policy Loss'] = np.mean(ptu.get_numpy(
                 policy_loss
-            ))
-            eval_statistics.update(create_stats_ordered_dict(
-                'Q1 Predictions',
-                ptu.get_numpy(q1_pred),
-            ))
-            eval_statistics.update(create_stats_ordered_dict(
-                'Q2 Predictions',
-                ptu.get_numpy(q2_pred),
-            ))
-            eval_statistics.update(create_stats_ordered_dict(
-                'Q Targets',
-                ptu.get_numpy(q_target),
             ))
             eval_statistics.update(create_stats_ordered_dict(
                 'Log Pis',
@@ -244,37 +231,14 @@ class SACTrainer(TorchTrainer, LossFunction):
             if self.use_automatic_entropy_tuning:
                 eval_statistics['Alpha'] = alpha.item()
                 eval_statistics['Alpha Loss'] = alpha_loss.item()
+            if self.eta > 0.:
+                eval_statistics['Grad Loss'] = ptu.get_numpy(grad_loss)
 
-            """
-            Register hooks to save the losses and policy gradients during training
-            log_grad() refers to the SACTrainer object's self.target_output_name and creates a new object '<self.target_output_name> / <variable_name> in eval stats
-            """
-            self.h1 = q1_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF1', grad))
-            self.h2 = q2_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF2', grad))
-            # h3 = rewards.register_hook(lambda grad: self.log_grad(eval_statistics, 'Rewards', grad))
-            # h4 = terminals.register_hook(lambda grad: self.log_grad(eval_statistics, 'Terminals', grad))
-            # h5 = obs.register_hook(lambda grad: self.log_grad(eval_statistics, 'Obs', grad))
-            # h6 = actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'Actions', grad))
-            # h7 = new_obs_actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'New Obs Actions', grad))
-
-        elif self.h1:
-
-            self.h1.remove()
-            self.h2.remove()
-            # h3.remove()
-            # h4.remove()
-            # h5.remove()
-            # h6.remove()
-            # h7.remove()
-
-
-        loss = SACLosses(
+        loss = SACNLosses(
             policy_loss=policy_loss,
-            qf1_loss=qf1_loss,
-            qf2_loss=qf2_loss,
+            qf_loss=total_qf_loss,
             alpha_loss=alpha_loss,
         )
-
 
         return loss, eval_statistics
 
@@ -290,26 +254,50 @@ class SACTrainer(TorchTrainer, LossFunction):
     def networks(self):
         return [
             self.policy,
-            self.qf1,
-            self.qf2,
-            self.target_qf1,
-            self.target_qf2,
+            self.qfs,
+            self.target_qfs,
         ]
 
     @property
     def optimizers(self):
         return [
             self.alpha_optimizer,
-            self.qf1_optimizer,
-            self.qf2_optimizer,
+            self.qf_optimizer,
             self.policy_optimizer,
         ]
 
     def get_snapshot(self):
         return dict(
             policy=self.policy,
-            qf1=self.qf1,
-            qf2=self.qf2,
-            target_qf1=self.target_qf1,
-            target_qf2=self.target_qf2,
+            qfs=self.qfs,
+            target_qfs=self.target_qfs,
         )
+
+    @staticmethod
+    def get_networks(num_critics,
+                     obs_dim,
+                     action_dim,
+                     layer_size,
+                     num_layers=2):
+        M = layer_size
+        qfs = ParallelizedEnsembleFlattenMLP(
+                ensemble_size=num_critics,
+                input_size=obs_dim + action_dim,
+                hidden_sizes=[M] * num_layers,
+                output_size=1,
+                layer_norm=None)
+        target_qfs = ParallelizedEnsembleFlattenMLP(
+                ensemble_size=num_critics,
+                input_size=obs_dim + action_dim,
+                hidden_sizes=[M] * num_layers,
+                output_size=1,
+                layer_norm=None)
+        policy = TanhGaussianPolicy(
+            obs_dim=obs_dim,
+            action_dim=action_dim,
+            hidden_sizes=[M, M],
+        )
+        networks = {'qfs': qfs,
+                    'target_qfs': target_qfs,
+                    'policy': policy}
+        return networks
