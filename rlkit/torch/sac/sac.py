@@ -99,6 +99,8 @@ class SACTrainer(TorchTrainer, LossFunction):
         self._n_train_steps_total = 0
         self._need_to_update_eval_statistics = True
         self.eval_statistics = OrderedDict()
+        self.h1 = None
+        self.h2 = None
 
     def train_from_torch(self, batch):
         gt.blank_stamp()
@@ -156,7 +158,7 @@ class SACTrainer(TorchTrainer, LossFunction):
     """
     def log_grad(self, stats, var_name, grad):
         stats.update(create_stats_ordered_dict(
-            f"{self.target_output_name} / {var_name}",
+            f"{self.target_output_name} / {var_name} grad",
             ptu.get_numpy(grad)
         ))
 
@@ -247,18 +249,18 @@ class SACTrainer(TorchTrainer, LossFunction):
             Register hooks to save the losses and policy gradients during training
             log_grad() refers to the SACTrainer object's self.target_output_name and creates a new object '<self.target_output_name> / <variable_name> in eval stats
             """
-            h1 = q1_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF1', grad))
-            h2 = q2_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF2', grad))
+            self.h1 = q1_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF1', grad))
+            self.h2 = q2_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF2', grad))
             # h3 = rewards.register_hook(lambda grad: self.log_grad(eval_statistics, 'Rewards', grad))
             # h4 = terminals.register_hook(lambda grad: self.log_grad(eval_statistics, 'Terminals', grad))
             # h5 = obs.register_hook(lambda grad: self.log_grad(eval_statistics, 'Obs', grad))
             # h6 = actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'Actions', grad))
             # h7 = new_obs_actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'New Obs Actions', grad))
 
-        else:
+        elif self.h1:
 
-            h1.remove()
-            h2.remove()
+            self.h1.remove()
+            self.h2.remove()
             # h3.remove()
             # h4.remove()
             # h5.remove()
