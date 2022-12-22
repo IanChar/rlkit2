@@ -57,6 +57,10 @@ class SACTrainer(TorchTrainer, LossFunction):
         self.target_update_period = target_update_period
         self.max_value = max_value
 
+        self.target_output_name = ""
+        self.gradient_logging_counter = 0
+        self.gradient_logging_interval = 100
+
         self.use_automatic_entropy_tuning = use_automatic_entropy_tuning
         if self.use_automatic_entropy_tuning:
             if target_entropy is None:
@@ -95,6 +99,8 @@ class SACTrainer(TorchTrainer, LossFunction):
         self._n_train_steps_total = 0
         self._need_to_update_eval_statistics = True
         self.eval_statistics = OrderedDict()
+        self.h1 = None
+        self.h2 = None
 
     def train_from_torch(self, batch):
         gt.blank_stamp()
@@ -102,6 +108,7 @@ class SACTrainer(TorchTrainer, LossFunction):
             batch,
             skip_statistics=not self._need_to_update_eval_statistics,
         )
+
         """
         Update networks
         """
@@ -111,14 +118,17 @@ class SACTrainer(TorchTrainer, LossFunction):
             self.alpha_optimizer.step()
 
         self.policy_optimizer.zero_grad()
+        self.target_output_name = "policy_loss"
         losses.policy_loss.backward()
         self.policy_optimizer.step()
 
         self.qf1_optimizer.zero_grad()
+        self.target_output_name = "qf1_loss"
         losses.qf1_loss.backward()
         self.qf1_optimizer.step()
 
         self.qf2_optimizer.zero_grad()
+        self.target_output_name = "qf2_loss"
         losses.qf2_loss.backward()
         self.qf2_optimizer.step()
 
@@ -142,6 +152,15 @@ class SACTrainer(TorchTrainer, LossFunction):
         ptu.soft_update_from_to(
             self.qf2, self.target_qf2, self.soft_target_tau
         )
+
+    """
+    Gradient logging helper function to be registered as hooks
+    """
+    def log_grad(self, stats, var_name, grad):
+        stats.update(create_stats_ordered_dict(
+            f"{self.target_output_name} / {var_name} grad",
+            ptu.get_numpy(grad)
+        ))
 
     def compute_loss(
         self,
@@ -198,6 +217,7 @@ class SACTrainer(TorchTrainer, LossFunction):
         """
         eval_statistics = OrderedDict()
         if not skip_statistics:
+
             eval_statistics['QF1 Loss'] = np.mean(ptu.get_numpy(qf1_loss))
             eval_statistics['QF2 Loss'] = np.mean(ptu.get_numpy(qf2_loss))
             eval_statistics['Policy Loss'] = np.mean(ptu.get_numpy(
@@ -225,12 +245,36 @@ class SACTrainer(TorchTrainer, LossFunction):
                 eval_statistics['Alpha'] = alpha.item()
                 eval_statistics['Alpha Loss'] = alpha_loss.item()
 
+            """
+            Register hooks to save the losses and policy gradients during training
+            log_grad() refers to the SACTrainer object's self.target_output_name and creates a new object '<self.target_output_name> / <variable_name> in eval stats
+            """
+            self.h1 = q1_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF1', grad))
+            self.h2 = q2_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF2', grad))
+            # h3 = rewards.register_hook(lambda grad: self.log_grad(eval_statistics, 'Rewards', grad))
+            # h4 = terminals.register_hook(lambda grad: self.log_grad(eval_statistics, 'Terminals', grad))
+            # h5 = obs.register_hook(lambda grad: self.log_grad(eval_statistics, 'Obs', grad))
+            # h6 = actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'Actions', grad))
+            # h7 = new_obs_actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'New Obs Actions', grad))
+
+        elif self.h1:
+
+            self.h1.remove()
+            self.h2.remove()
+            # h3.remove()
+            # h4.remove()
+            # h5.remove()
+            # h6.remove()
+            # h7.remove()
+
+
         loss = SACLosses(
             policy_loss=policy_loss,
             qf1_loss=qf1_loss,
             qf2_loss=qf2_loss,
             alpha_loss=alpha_loss,
         )
+
 
         return loss, eval_statistics
 
