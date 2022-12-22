@@ -215,6 +215,7 @@ class SACTrainer(TorchTrainer, LossFunction):
         """
         eval_statistics = OrderedDict()
         if not skip_statistics:
+
             eval_statistics['QF1 Loss'] = np.mean(ptu.get_numpy(qf1_loss))
             eval_statistics['QF2 Loss'] = np.mean(ptu.get_numpy(qf2_loss))
             eval_statistics['Policy Loss'] = np.mean(ptu.get_numpy(
@@ -248,21 +249,21 @@ class SACTrainer(TorchTrainer, LossFunction):
             """
             h1 = q1_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF1', grad))
             h2 = q2_pred.register_hook(lambda grad: self.log_grad(eval_statistics, 'QF2', grad))
-            h3 = rewards.register_hook(lambda grad: self.log_grad(eval_statistics, 'Rewards', grad))
-            h4 = terminals.register_hook(lambda grad: self.log_grad(eval_statistics, 'Terminals', grad))
-            h5 = obs.register_hook(lambda grad: self.log_grad(eval_statistics, 'Obs', grad))
-            h6 = actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'Actions', grad))
-            h7 = new_obs_actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'New Obs Actions', grad))
+            # h3 = rewards.register_hook(lambda grad: self.log_grad(eval_statistics, 'Rewards', grad))
+            # h4 = terminals.register_hook(lambda grad: self.log_grad(eval_statistics, 'Terminals', grad))
+            # h5 = obs.register_hook(lambda grad: self.log_grad(eval_statistics, 'Obs', grad))
+            # h6 = actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'Actions', grad))
+            # h7 = new_obs_actions.register_hook(lambda grad: self.log_grad(eval_statistics, 'New Obs Actions', grad))
 
         else:
 
             h1.remove()
             h2.remove()
-            h3.remove()
-            h4.remove()
-            h5.remove()
-            h6.remove()
-            h7.remove()
+            # h3.remove()
+            # h4.remove()
+            # h5.remove()
+            # h6.remove()
+            # h7.remove()
 
 
         loss = SACLosses(
