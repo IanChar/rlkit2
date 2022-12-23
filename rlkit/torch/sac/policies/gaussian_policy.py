@@ -85,6 +85,8 @@ class TanhGaussianPolicy(Mlp, TorchStochasticPolicy):
             init_w=1e-3,
             **kwargs
     ):
+        if hidden_sizes is None:
+            hidden_sizes = []
         super().__init__(
             hidden_sizes,
             input_size=obs_dim,
