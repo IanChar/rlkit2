@@ -71,13 +71,6 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
                 save_itrs=True,
             )
         for epoch in epoch_iterator:
-            eval_paths = self.eval_data_collector.collect_new_paths(
-                self.max_path_length,
-                self.num_eval_steps_per_epoch,
-                discard_incomplete_paths=True,
-            )
-            self._mark_returns(epoch, eval_paths, eval_returns=True)
-            self._time_stamp('evaluation sampling', unique=False)
             for _ in tqdm(range(self.num_train_loops_per_epoch)):
                 new_expl_paths = self.expl_data_collector.collect_new_paths(
                     self.max_path_length,
@@ -99,6 +92,13 @@ class BatchRLAlgorithm(BaseRLAlgorithm, metaclass=abc.ABCMeta):
                 if self.clear_buffer_every_train_loop:
                     self.replay_buffer.clear_buffer()
             self._mark_returns(epoch, new_expl_paths, eval_returns=False)
+            eval_paths = self.eval_data_collector.collect_new_paths(
+                self.max_path_length,
+                self.num_eval_steps_per_epoch,
+                discard_incomplete_paths=True,
+            )
+            self._mark_returns(epoch, eval_paths, eval_returns=True)
+            self._time_stamp('evaluation sampling', unique=False)
             self._end_epoch(epoch)
             if self._should_early_stop:
                 break
