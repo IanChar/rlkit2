@@ -57,7 +57,9 @@ class SACNTrainer(TorchTrainer, LossFunction):
         self.soft_target_tau = soft_target_tau
         self.target_update_period = target_update_period
         self.max_value = max_value
+        self.target_output_name = ""
         self.eta = eta
+        self.hook = None
 
         self.use_automatic_entropy_tuning = use_automatic_entropy_tuning
         if self.use_automatic_entropy_tuning:
@@ -101,7 +103,6 @@ class SACNTrainer(TorchTrainer, LossFunction):
         )
         """
         Gradient logging helper function
-        """
         def log_grad(output, stats, root_name, depth = 1):
 
             for grad_fn, input in output.next_functions:
@@ -114,6 +115,7 @@ class SACNTrainer(TorchTrainer, LossFunction):
                 if depth > 1:
                     log_grad(input, stats, input[1].name, depth - 1)
         """
+        """
         Update networks
         """
         if self.use_automatic_entropy_tuning:
@@ -122,13 +124,13 @@ class SACNTrainer(TorchTrainer, LossFunction):
             self.alpha_optimizer.step()
 
         self.policy_optimizer.zero_grad()
+        self.target_output_name = "policy_loss"
         losses.policy_loss.backward()
-        log_grad(losses.policy_loss, stats, 'policy_loss', depth=1)
         self.policy_optimizer.step()
 
         self.qf_optimizer.zero_grad()
+        self.target_output_name = "qf_loss"
         losses.qf_loss.backward()
-        log_grad(losses.qf_loss, stats, 'qf_loss', depth=2)
         self.qf_optimizer.step()
 
         self._n_train_steps_total += 1
@@ -148,6 +150,16 @@ class SACNTrainer(TorchTrainer, LossFunction):
         ptu.soft_update_from_to(
             self.qfs, self.target_qfs, self.soft_target_tau
         )
+
+    """
+    Gradient logging helper function to be registered as hooks
+    """
+    def log_grad(self, stats, var_name, grad):
+        stats.update(create_stats_ordered_dict(
+            f"{self.target_output_name} / {var_name} grad",
+            ptu.get_numpy(grad)
+        ))
+
 
     def compute_loss(
         self,
@@ -233,6 +245,10 @@ class SACNTrainer(TorchTrainer, LossFunction):
                 eval_statistics['Alpha Loss'] = alpha_loss.item()
             if self.eta > 0.:
                 eval_statistics['Grad Loss'] = ptu.get_numpy(grad_loss)
+
+            self.hook = qs_pred.register_hook(lambda grad: self.log_grad(eval_statistics, "QF", grad))
+        elif self.hook:
+            self.hook.remove()
 
         loss = SACNLosses(
             policy_loss=policy_loss,
