@@ -20,7 +20,7 @@ from rlkit.torch.sac.policies.sequence_policies.sequence_policies import (
 from rlkit.torch.networks.mlp import Mlp
 
 
-class SequentialTanhGaussianPolicySingle(Mlp, TorchStochasticSequencePolicy):
+class SeqGaussianPolicy(Mlp, TorchStochasticSequencePolicy):
 
     def __init__(
             self,
@@ -75,10 +75,10 @@ class SequentialTanhGaussianPolicySingle(Mlp, TorchStochasticSequencePolicy):
         return log_prob
 
 
-class SequentialTanhGaussianPolicySingleAdapter(TorchStochasticPolicy):
+class SeqGaussianPolicyAdapter(TorchStochasticPolicy):
     def __init__(
         self,
-        policy: SequentialTanhGaussianPolicySingle,
+        policy: SeqGaussianPolicy,
         keep_track_of_grads: bool = False,
     ):
         super().__init__()
