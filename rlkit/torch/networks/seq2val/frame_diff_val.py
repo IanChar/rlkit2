@@ -10,15 +10,14 @@ from rlkit.torch.networks.mlp import Mlp
 from rlkit.torch.core import PyTorchModule
 
 
-class FrameStackedQNet(PyTorchModule):
+class FrameDiffQNet(PyTorchModule):
     def __init__(
         self,
         obs_dim: int,
         act_dim: int,
         hidden_depth: int,
         hidden_width: int,
-        lookback_len: int,
-        encode_action_seq: bool = False,
+        diff_coef: float = 1.0,
     ):
         """Constructor.
 
@@ -32,11 +31,8 @@ class FrameStackedQNet(PyTorchModule):
             encode_action_seq: Whether to encode past action sequence.
         """
         super().__init__()
-        self.lookback_len = lookback_len
-        self.encode_action_seq = encode_action_seq
-        in_dim = obs_dim * lookback_len + act_dim
-        if encode_action_seq:
-            in_dim += act_dim * lookback_len
+        self.diff_coef = diff_coef
+        in_dim = obs_dim * 2 + act_dim
         self.net = Mlp(
             input_size=in_dim,
             output_size=1,
@@ -53,14 +49,9 @@ class FrameStackedQNet(PyTorchModule):
 
         Returns: Value for last observation + action (batch_size, 1)
         """
-        net_in = obs_seq[:, -self.lookback_len:].view(obs_seq.shape[0], -1)
-        if self.encode_action_seq:
-            net_in = torch.cat([
-                net_in,
-                prev_act_seq[:, -self.lookback_len].view(obs_seq.shape[0], -1),
-            ], dim=-1)
         net_in = torch.cat([
-            net_in,
+            obs_seq[:, -1],
+            obs_seq[:, -1] - obs_seq[:, -2] * self.diff_coef,
             act,
         ], dim=-1)
         return self.net(net_in)
