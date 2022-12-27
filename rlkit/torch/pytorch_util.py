@@ -257,7 +257,7 @@ def empty(*args, torch_device=None, **kwargs):
 
 
 def from_numpy(*args, **kwargs):
-    return torch.from_numpy(*args, **kwargs).float().to(device)
+    return torch.as_tensor(*args, **kwargs).float().to(device)
 
 
 def get_numpy(tensor):
