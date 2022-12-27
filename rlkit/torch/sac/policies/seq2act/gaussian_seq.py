@@ -14,7 +14,7 @@ from rlkit.torch.distributions import TanhNormal
 import rlkit.torch.pytorch_util as ptu
 from rlkit.torch.sac.policies.base import TorchStochasticPolicy
 from rlkit.torch.sac.policies.gaussian_policy import LOG_SIG_MAX, LOG_SIG_MIN
-from rlkit.torch.sac.policies.sequence_policies.sequence_policies import (
+from rlkit.torch.sac.policies.sequence_policies import (
     TorchStochasticSequencePolicy,
 )
 from rlkit.torch.networks.mlp import Mlp
@@ -24,15 +24,15 @@ class SeqGaussianPolicy(Mlp, TorchStochasticSequencePolicy):
 
     def __init__(
             self,
-            hidden_sizes,
             obs_dim,
             action_dim,
+            hidden_width,
+            hidden_depth,
             std=None,
             init_w=1e-3,
             **kwargs
     ):
-        if hidden_sizes is None:
-            hidden_sizes = []
+        hidden_sizes = [hidden_width for _ in range(hidden_depth)]
         super().__init__(
             hidden_sizes,
             input_size=obs_dim,
