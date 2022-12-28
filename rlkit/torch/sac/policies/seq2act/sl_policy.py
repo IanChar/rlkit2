@@ -40,6 +40,7 @@ class SLPolicy(TorchStochasticSequencePolicy):
         num_channels: int,
         std=None,
         use_act_encoder: bool = False,
+        attach_obs: bool = False,
         init_w: float = 1e-3,
     ):
         """Constructor.
@@ -58,6 +59,7 @@ class SLPolicy(TorchStochasticSequencePolicy):
         )
         self.lookback_len = lookback_len
         self.use_act_encoder = use_act_encoder
+        self.attach_obs = attach_obs
         self.total_encode_dim = obs_encoding_size
         if use_act_encoder:
             self.act_encoder = Mlp(
@@ -69,10 +71,12 @@ class SLPolicy(TorchStochasticSequencePolicy):
         else:
             self.act_encoder = None
         self.std = std
-        self.last_layer = torch.nn.Linear(num_channels, action_dim)
+        in_dim = num_channels
+        if self.attach_obs:
+            in_dim += obs_dim
+        self.last_layer = torch.nn.Linear(in_dim, action_dim)
         if std is None:
-            self.last_fc_log_std = torch.nn.Linear(num_channels,
-                                                   action_dim)
+            self.last_fc_log_std = torch.nn.Linear(in_dim, action_dim)
             self.last_fc_log_std.weight.data.uniform_(-init_w, init_w)
             self.last_fc_log_std.bias.data.uniform_(-init_w, init_w)
         else:
@@ -96,6 +100,8 @@ class SLPolicy(TorchStochasticSequencePolicy):
         # Pad the fron of the stats with lookback_len - 1 for integral term.
         conv_out =\
             torch.transpose(self.conv(torch.transpose(stats, 1, 2)), 1, 2).squeeze()
+        if self.attach_obs:
+            conv_out = torch.cat([obs_seq[:, -1], conv_out], dim=-1)
         means = self.last_layer(conv_out)
         if self.std is None:
             log_std = self.last_fc_log_std(conv_out)
@@ -156,6 +162,8 @@ class SLPolicyAdapter(TorchStochasticPolicy):
         self.stats = torch.cat([self.stats[:, 1:], new_stats.unsqueeze(1)], dim=1)
         conv_out = torch.transpose(
             self.policy.conv(torch.transpose(self.stats, 1, 2)), 1, 2).squeeze()
+        if self.policy.attach_obs:
+            conv_out = torch.cat([obs, conv_out], dim=-1)
         mean = self.policy.last_layer(conv_out)
         if self.policy.std is None:
             log_std = self.policy.last_fc_log_std(conv_out)

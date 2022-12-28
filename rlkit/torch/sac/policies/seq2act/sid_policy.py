@@ -39,6 +39,7 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         lookback_len: int,
         std=None,
         use_act_encoder: bool = False,
+        attach_obs: bool = False,
         init_w: float = 1e-3,
     ):
         """Constructor.
@@ -56,6 +57,7 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         )
         self.lookback_len = lookback_len
         self.use_act_encoder = use_act_encoder
+        self.attach_obs = attach_obs
         self.total_encode_dim = obs_encoding_size
         if use_act_encoder:
             self.act_encoder = Mlp(
@@ -67,10 +69,12 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         else:
             self.act_encoder = None
         self.std = std
-        self.last_layer = torch.nn.Linear(self.total_encode_dim * 3, action_dim)
+        in_dim = self.total_encode_dim * 3
+        if attach_obs:
+            in_dim += obs_dim
+        self.last_layer = torch.nn.Linear(in_dim, action_dim)
         if std is None:
-            self.last_fc_log_std = torch.nn.Linear(self.total_encode_dim * 3,
-                                                   action_dim)
+            self.last_fc_log_std = torch.nn.Linear(in_dim, action_dim)
             self.last_fc_log_std.weight.data.uniform_(-init_w, init_w)
             self.last_fc_log_std.bias.data.uniform_(-init_w, init_w)
         else:
@@ -91,6 +95,8 @@ class SIDPolicy(TorchStochasticSequencePolicy):
             torch.mean(stats, dim=1),
             stats[:, -1] - stats[:, -2],
         ], dim=1)
+        if self.attach_obs:
+            sid_out = torch.cat([obs_seq[:, -1], sid_out], dim=-1)
         means = self.last_layer(sid_out)
         if self.std is None:
             log_std = self.last_fc_log_std(sid_out)
@@ -152,6 +158,8 @@ class SIDPolicyAdapter(TorchStochasticPolicy):
         integral_stat = torch.mean(self.stats, dim=1)
         diff_stat = self.stats[:, -1] - self.stats[:, -2]
         curr_sid = torch.cat([self.stats[:, -1], integral_stat, diff_stat], dim=-1)
+        if self.policy.attach_obs:
+            curr_sid = torch.cat([obs, curr_sid], dim=-1)
         mean = self.policy.last_layer(curr_sid)
         if self.policy.std is None:
             log_std = self.policy.last_fc_log_std(curr_sid)

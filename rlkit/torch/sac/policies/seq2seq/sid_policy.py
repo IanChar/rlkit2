@@ -39,6 +39,7 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         lookback_len: int,
         std=None,
         use_act_encoder: bool = False,
+        attach_obs: bool = False,
         init_w: float = 1e-3,
     ):
         """Constructor.
@@ -56,6 +57,7 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         )
         self.lookback_len = lookback_len
         self.use_act_encoder = use_act_encoder
+        self.attach_obs = attach_obs
         self.total_encode_dim = obs_encoding_size
         if use_act_encoder:
             self.act_encoder = Mlp(
@@ -67,10 +69,12 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         else:
             self.act_encoder = None
         self.std = std
-        self.last_layer = torch.nn.Linear(self.total_encode_dim * 3, action_dim)
+        in_dim = self.total_encode_dim * 3
+        if attach_obs:
+            in_dim += obs_dim
+        self.last_layer = torch.nn.Linear(in_dim, action_dim)
         if std is None:
-            self.last_fc_log_std = torch.nn.Linear(self.total_encode_dim * 3,
-                                                   action_dim)
+            self.last_fc_log_std = torch.nn.Linear(in_dim, action_dim)
             self.last_fc_log_std.weight.data.uniform_(-init_w, init_w)
             self.last_fc_log_std.bias.data.uniform_(-init_w, init_w)
         else:
