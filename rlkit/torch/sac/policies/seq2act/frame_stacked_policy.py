@@ -140,7 +140,7 @@ class FrameStackPolicyAdapter(TorchStochasticPolicy):
             self.act_hist = ptu.zeros((len(obs), self.policy.lookback_len,
                                        self.policy.action_dim))
         self.obs_hist = torch.cat([
-            self.obs_hist[:, :-1],
+            self.obs_hist[:, 1:],
             obs.view(obs.shape[0], 1, obs.shape[1]),
         ], dim=1)
         return self.policy.forward(self.obs_hist, self.act_hist)
