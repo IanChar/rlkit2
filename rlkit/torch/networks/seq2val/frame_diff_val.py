@@ -51,7 +51,7 @@ class FrameDiffQNet(PyTorchModule):
         """
         net_in = torch.cat([
             obs_seq[:, -1],
-            obs_seq[:, -1] - obs_seq[:, -2] * self.diff_coef,
+            (obs_seq[:, -1] - obs_seq[:, -2]) * self.diff_coef,
             act,
         ], dim=-1)
         return self.net(net_in)

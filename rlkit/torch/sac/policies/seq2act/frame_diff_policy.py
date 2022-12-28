@@ -67,7 +67,7 @@ class FrameDiffPolicy(TorchStochasticSequencePolicy):
         # Do the input reshaping.
         h = torch.cat([
             obs_seq[:, -1],
-            obs_seq[:, -1] - obs_seq[:, -2] * self.diff_coef,
+            (obs_seq[:, -1] - obs_seq[:, -2]) * self.diff_coef,
         ], dim=-1)
         for i, fc in enumerate(self.net.fcs):
             h = self.net.hidden_activation(fc(h))
