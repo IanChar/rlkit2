@@ -40,6 +40,7 @@ class HardCodedSDPolicy(TorchStochasticSequencePolicy):
         std=None,
         use_act_encoder: bool = False,
         attach_obs: bool = False,
+        coef: float = 10.0,
         init_w: float = 1e-3,
     ):
         """Constructor.
@@ -52,6 +53,7 @@ class HardCodedSDPolicy(TorchStochasticSequencePolicy):
         super().__init__()
         assert obs_dim == 3
         assert obs_encoding_size == 1
+        self.coef = coef
         self.obs_encoder = Mlp(
             input_size=obs_dim,
             output_size=obs_encoding_size,
@@ -103,7 +105,7 @@ class HardCodedSDPolicy(TorchStochasticSequencePolicy):
         # Pad the fron of the stats with lookback_len - 1 for integral term.
         sid_out = torch.cat([
             stats[:, -1],
-            stats[:, -1] - stats[:, -2],
+            (stats[:, -1] - stats[:, -2]) * self.coef,
         ], dim=-1)
         if self.attach_obs:
             sid_out = torch.cat([obs_seq[:, -1], sid_out], dim=-1)
@@ -165,7 +167,7 @@ class HardCodedSDPolicyAdapter(TorchStochasticPolicy):
             act_stats = self.policy.act_encoder(self.last_acts)
             new_stats = torch.cat([new_stats, act_stats], dim=1)
         self.stats = torch.cat([self.stats[:, 1:], new_stats.unsqueeze(1)], dim=1)
-        diff_stat = self.stats[:, -1] - self.stats[:, -2]
+        diff_stat = (self.stats[:, -1] - self.stats[:, -2]) * self.policy.coef
         curr_sd = torch.cat([self.stats[:, -1], diff_stat], dim=-1)
         if self.policy.attach_obs:
             curr_sd = torch.cat([obs, curr_sd], dim=-1)

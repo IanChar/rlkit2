@@ -22,6 +22,7 @@ class HardCodedSDQNet(PyTorchModule):
         decoder_width: int,
         decoder_depth: int,
         encode_action_seq: bool = False,
+        coef: float = 10.0,
     ):
         """Constructor.
 
@@ -40,6 +41,7 @@ class HardCodedSDQNet(PyTorchModule):
         self.lookback_len = lookback_len
         self.encode_action_seq = encode_action_seq
         input_size = obs_dim
+        self.coef = coef
         if encode_action_seq:
             input_size += act_dim
         assert input_size == 3
@@ -78,5 +80,5 @@ class HardCodedSDQNet(PyTorchModule):
             obs_seq[:, -1],
             act,
             stats[:, -1],
-            stats[:, -1] - stats[:, -2],
+            (stats[:, -1] - stats[:, -2]) * self.coef,
         ], dim=-1))
