@@ -40,6 +40,7 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         std=None,
         use_act_encoder: bool = False,
         attach_obs: bool = False,
+        layer_norm: bool = True,
         init_w: float = 1e-3,
     ):
         """Constructor.
@@ -80,6 +81,10 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         else:
             self.log_std = np.log(std)
             assert LOG_SIG_MIN <= self.log_std <= LOG_SIG_MAX
+        if layer_norm:
+            self.layer_norm = torch.nn.LayerNorm(3 * self.total_encode_dim)
+        else:
+            self.layer_norm = None
 
     def forward(self, obs_seq, act_seq):
         """Forward should have shapes
@@ -95,6 +100,8 @@ class SIDPolicy(TorchStochasticSequencePolicy):
             torch.mean(stats, dim=1),
             stats[:, -1] - stats[:, -2],
         ], dim=1)
+        if self.layer_norm is not None:
+            sid_out = self.layer_norm(sid_out)
         if self.attach_obs:
             sid_out = torch.cat([obs_seq[:, -1], sid_out], dim=-1)
         means = self.last_layer(sid_out)
@@ -158,6 +165,8 @@ class SIDPolicyAdapter(TorchStochasticPolicy):
         integral_stat = torch.mean(self.stats, dim=1)
         diff_stat = self.stats[:, -1] - self.stats[:, -2]
         curr_sid = torch.cat([self.stats[:, -1], integral_stat, diff_stat], dim=-1)
+        if self.policy.layer_norm is not None:
+            curr_sid = self.policy.layer_norm(curr_sid)
         if self.policy.attach_obs:
             curr_sid = torch.cat([obs, curr_sid], dim=-1)
         mean = self.policy.last_layer(curr_sid)

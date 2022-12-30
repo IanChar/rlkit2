@@ -23,6 +23,7 @@ class SLQNet(PyTorchModule):
         decoder_width: int,
         decoder_depth: int,
         encode_action_seq: bool = False,
+        layer_norm: bool = True,
     ):
         """Constructor.
 
@@ -59,6 +60,10 @@ class SLQNet(PyTorchModule):
             out_channels=num_channels,
             kernel_size=lookback_len,
         )
+        if layer_norm:
+            self.layer_norm = torch.nn.LayerNorm(num_channels)
+        else:
+            self.layer_norm = None
 
     def forward(self, obs_seq, prev_act_seq, act, **kwargs):
         """Forward pass.
@@ -77,6 +82,8 @@ class SLQNet(PyTorchModule):
         stats = self.encoder(net_in)
         conv_out =\
             torch.transpose(self.conv(torch.transpose(stats, 1, 2)), 1, 2).squeeze()
+        if self.layer_norm is not None:
+            conv_out = self.layer_norm(conv_out)
         return self.decoder(torch.cat([
             obs_seq[:, -1],
             act,

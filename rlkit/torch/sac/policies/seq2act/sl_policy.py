@@ -41,6 +41,7 @@ class SLPolicy(TorchStochasticSequencePolicy):
         std=None,
         use_act_encoder: bool = False,
         attach_obs: bool = False,
+        layer_norm: bool = True,
         init_w: float = 1e-3,
     ):
         """Constructor.
@@ -87,6 +88,10 @@ class SLPolicy(TorchStochasticSequencePolicy):
             out_channels=num_channels,
             kernel_size=lookback_len,
         )
+        if layer_norm:
+            self.layer_norm = torch.nn.LayerNorm(num_channels)
+        else:
+            self.layer_norm = None
 
     def forward(self, obs_seq, act_seq):
         """Forward should have shapes
@@ -100,6 +105,8 @@ class SLPolicy(TorchStochasticSequencePolicy):
         # Pad the fron of the stats with lookback_len - 1 for integral term.
         conv_out =\
             torch.transpose(self.conv(torch.transpose(stats, 1, 2)), 1, 2).squeeze()
+        if self.layer_norm is not None:
+            conv_out = self.layer_norm(conv_out)
         if self.attach_obs:
             conv_out = torch.cat([obs_seq[:, -1], conv_out], dim=-1)
         means = self.last_layer(conv_out)
@@ -162,6 +169,8 @@ class SLPolicyAdapter(TorchStochasticPolicy):
         self.stats = torch.cat([self.stats[:, 1:], new_stats.unsqueeze(1)], dim=1)
         conv_out = torch.transpose(
             self.policy.conv(torch.transpose(self.stats, 1, 2)), 1, 2).squeeze()
+        if self.policy.layer_norm is not None:
+            conv_out = self.policy.layer_norm(conv_out)
         if self.policy.attach_obs:
             conv_out = torch.cat([obs, conv_out], dim=-1)
         mean = self.policy.last_layer(conv_out)

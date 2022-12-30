@@ -22,6 +22,7 @@ class SIDQNet(PyTorchModule):
         decoder_width: int,
         decoder_depth: int,
         encode_action_seq: bool = False,
+        layer_norm: bool = True,
     ):
         """Constructor.
 
@@ -52,6 +53,10 @@ class SIDQNet(PyTorchModule):
             output_size=1,
             hidden_sizes=[decoder_width for _ in range(decoder_depth)],
         )
+        if layer_norm:
+            self.layer_norm = torch.nn.LayerNorm(3 * encode_size)
+        else:
+            self.layer_norm = None
 
     def forward(self, obs_seq, prev_act_seq, act, **kwargs):
         """Forward pass.
@@ -68,10 +73,15 @@ class SIDQNet(PyTorchModule):
         else:
             net_in = obs_seq
         stats = self.encoder(net_in)
-        return self.decoder(torch.cat([
-            obs_seq[:, -1],
-            act,
+        sid_out = torch.cat([
             stats[:, -1],
             torch.mean(stats, dim=1),
             stats[:, -1] - stats[:, -2],
+        ], dim=-1)
+        if self.layer_norm is not None:
+            sid_out = self.layer_norm(sid_out)
+        return self.decoder(torch.cat([
+            obs_seq[:, -1],
+            act,
+            sid_out,
         ], dim=-1))
