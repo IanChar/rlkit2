@@ -40,6 +40,8 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         std=None,
         use_act_encoder: bool = False,
         attach_obs: bool = False,
+        sum_over_terms: bool = False,
+        detach_i_gradients: bool = False,
         init_w: float = 1e-3,
     ):
         """Constructor.
@@ -59,6 +61,8 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         self.use_act_encoder = use_act_encoder
         self.attach_obs = attach_obs
         self.total_encode_dim = obs_encoding_size
+        self.sum_over_terms = sum_over_terms
+        self.detach_i_gradients = detach_i_gradients
         if use_act_encoder:
             self.act_encoder = Mlp(
                 input_size=obs_dim,

@@ -41,6 +41,8 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         use_act_encoder: bool = False,
         attach_obs: bool = False,
         layer_norm: bool = True,
+        sum_over_terms: bool = False,
+        detach_i_gradients: bool = False,
         init_w: float = 1e-3,
     ):
         """Constructor.
@@ -59,6 +61,8 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         self.lookback_len = lookback_len
         self.use_act_encoder = use_act_encoder
         self.attach_obs = attach_obs
+        self.sum_over_terms = sum_over_terms
+        self.detach_i_gradients = detach_i_gradients
         self.total_encode_dim = obs_encoding_size
         if use_act_encoder:
             self.act_encoder = Mlp(
@@ -95,9 +99,15 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         if self.use_act_encoder:
             act_stats = self.act_encoder(act_seq)
             stats = torch.cat([stats, act_stats], dim=-1)
+        if self.sum_over_terms:
+            iterm = torch.sum(stats, dim=1)
+        else:
+            iterm = torch.mean(stats, dim=1)
+        if self.detach_i_gradients:
+            iterm = iterm.detach()
         sid_out = torch.cat([
             stats[:, -1],
-            torch.mean(stats, dim=1),
+            iterm,
             stats[:, -1] - stats[:, -2],
         ], dim=1)
         if self.layer_norm is not None:
@@ -162,9 +172,14 @@ class SIDPolicyAdapter(TorchStochasticPolicy):
             act_stats = self.policy.act_encoder(self.last_acts)
             new_stats = torch.cat([new_stats, act_stats], dim=1)
         self.stats = torch.cat([self.stats[:, 1:], new_stats.unsqueeze(1)], dim=1)
-        integral_stat = torch.mean(self.stats, dim=1)
+        if self.policy.sum_over_terms:
+            iterm = torch.sum(self.stats, dim=1)
+        else:
+            iterm = torch.mean(self.stats, dim=1)
+        if self.policy.detach_i_gradients:
+            iterm = iterm.detach()
         diff_stat = self.stats[:, -1] - self.stats[:, -2]
-        curr_sid = torch.cat([self.stats[:, -1], integral_stat, diff_stat], dim=-1)
+        curr_sid = torch.cat([self.stats[:, -1], iterm, diff_stat], dim=-1)
         if self.policy.layer_norm is not None:
             curr_sid = self.policy.layer_norm(curr_sid)
         if self.policy.attach_obs:

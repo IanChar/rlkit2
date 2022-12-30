@@ -23,6 +23,8 @@ class SIDQNet(PyTorchModule):
         decoder_depth: int,
         encode_action_seq: bool = False,
         layer_norm: bool = True,
+        sum_over_terms: bool = False,
+        detach_i_gradients: bool = False,
     ):
         """Constructor.
 
@@ -40,6 +42,8 @@ class SIDQNet(PyTorchModule):
         super().__init__()
         self.lookback_len = lookback_len
         self.encode_action_seq = encode_action_seq
+        self.sum_over_terms = sum_over_terms
+        self.detach_i_gradients = detach_i_gradients
         input_size = obs_dim
         if encode_action_seq:
             input_size += act_dim
@@ -73,9 +77,15 @@ class SIDQNet(PyTorchModule):
         else:
             net_in = obs_seq
         stats = self.encoder(net_in)
+        if self.sum_over_terms:
+            iterm = torch.sum(stats, dim=1)
+        else:
+            iterm = torch.mean(stats, dim=1)
+        if self.detach_i_gradients:
+            iterm = iterm.detach()
         sid_out = torch.cat([
             stats[:, -1],
-            torch.mean(stats, dim=1),
+            iterm,
             stats[:, -1] - stats[:, -2],
         ], dim=-1)
         if self.layer_norm is not None:
