@@ -65,13 +65,14 @@ class SLQNet(PyTorchModule):
         else:
             self.layer_norm = None
 
-    def forward(self, obs_seq, prev_act_seq, act, **kwargs):
+    def forward(self, obs_seq, prev_act_seq, act, masks=None, **kwargs):
         """Forward pass.
 
         Args:
             obs_seq: Observation sequence (batch_size, L, obs_dim)
             prev_act_seq: Previous action sequence (batch_size, L, act_dim)
             act: The current action (batch_size, act_dim)
+            masks: Masks with shape (batch_size, L, 1)
 
         Returns: Value for last observation + action (batch_size, 1)
         """
@@ -80,6 +81,8 @@ class SLQNet(PyTorchModule):
         else:
             net_in = obs_seq
         stats = self.encoder(net_in)
+        if masks is not None:
+            stats *= masks
         conv_out =\
             torch.transpose(self.conv(torch.transpose(stats, 1, 2)), 1, 2).squeeze()
         if self.layer_norm is not None:

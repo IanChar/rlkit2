@@ -43,10 +43,11 @@ class SequentialSingleSACTrainer(SACTrainer):
         actions = batch['actions']
         next_obs = batch['next_observations']
         prev_acts = batch['prev_actions']
+        masks = batch['masks']
         """
         Policy and Alpha Loss
         """
-        dist = self.policy(obs, prev_acts)
+        dist = self.policy(obs, prev_acts, masks)
         new_obs_actions, log_pi = dist.rsample_and_logprob()
         log_pi = log_pi.unsqueeze(-1)
         if self.use_automatic_entropy_tuning:
@@ -57,22 +58,22 @@ class SequentialSingleSACTrainer(SACTrainer):
             alpha_loss = 0
             alpha = 1
         q_new_actions = torch.min(
-            self.qf1(obs, prev_acts, new_obs_actions),
-            self.qf2(obs, prev_acts, new_obs_actions),
+            self.qf1(obs, prev_acts, new_obs_actions, masks),
+            self.qf2(obs, prev_acts, new_obs_actions, masks),
         )
         policy_loss = (alpha*log_pi - q_new_actions).mean()
 
         """
         QF Loss
         """
-        q1_pred = self.qf1(obs, prev_acts, actions[:, -1])
-        q2_pred = self.qf2(obs, prev_acts, actions[:, -1])
-        next_dist = self.policy(next_obs, actions)
+        q1_pred = self.qf1(obs, prev_acts, actions[:, -1], masks)
+        q2_pred = self.qf2(obs, prev_acts, actions[:, -1], masks)
+        next_dist = self.policy(next_obs, actions, masks)
         new_next_actions, new_log_pi = next_dist.rsample_and_logprob()
         new_log_pi = new_log_pi.unsqueeze(-1)
         target_q_values = torch.min(
-            self.target_qf1(next_obs, actions, new_next_actions),
-            self.target_qf2(next_obs, actions, new_next_actions),
+            self.target_qf1(next_obs, actions, new_next_actions, masks),
+            self.target_qf2(next_obs, actions, new_next_actions, masks),
         ) - alpha * new_log_pi
         q_target = (self.reward_scale * rewards
                     + (1. - terminals) * self.discount * target_q_values)

@@ -93,7 +93,7 @@ class SLPolicy(TorchStochasticSequencePolicy):
         else:
             self.layer_norm = None
 
-    def forward(self, obs_seq, act_seq):
+    def forward(self, obs_seq, act_seq, masks=None):
         """Forward should have shapes
             (batch_size, L, obs_dim) and (batch_size, L - 1, act_dim)
         """
@@ -102,6 +102,8 @@ class SLPolicy(TorchStochasticSequencePolicy):
         if self.use_act_encoder:
             act_stats = self.act_encoder(act_seq)
             stats = torch.cat([stats, act_stats], dim=-1)
+        if masks is not None:
+            stats *= masks
         # Pad the fron of the stats with lookback_len - 1 for integral term.
         conv_out =\
             torch.transpose(self.conv(torch.transpose(stats, 1, 2)), 1, 2).squeeze()

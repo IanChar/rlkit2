@@ -34,7 +34,7 @@ class SeqQNet(PyTorchModule):
             hidden_sizes=[hidden_width for _ in range(hidden_depth)],
         )
 
-    def forward(self, obs_seq, prev_act_seq, act, **kwargs):
+    def forward(self, obs_seq, prev_act_seq, act, masks=None, **kwargs):
         """Forward pass.
 
         Args:

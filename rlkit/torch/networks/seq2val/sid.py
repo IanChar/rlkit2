@@ -62,7 +62,7 @@ class SIDQNet(PyTorchModule):
         else:
             self.layer_norm = None
 
-    def forward(self, obs_seq, prev_act_seq, act, **kwargs):
+    def forward(self, obs_seq, prev_act_seq, act, masks=None, **kwargs):
         """Forward pass.
 
         Args:
@@ -77,6 +77,8 @@ class SIDQNet(PyTorchModule):
         else:
             net_in = obs_seq
         stats = self.encoder(net_in)
+        if masks is not None:
+            stats *= masks
         if self.sum_over_terms:
             iterm = torch.sum(stats, dim=1)
         else:

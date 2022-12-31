@@ -57,7 +57,7 @@ class FrameDiffPolicy(TorchStochasticSequencePolicy):
             self.log_std = np.log(std)
             assert LOG_SIG_MIN <= self.log_std <= LOG_SIG_MAX
 
-    def forward(self, obs_seq, act_seq):
+    def forward(self, obs_seq, act_seq, masks=None):
         """Forward should have shapes
 
         Args:

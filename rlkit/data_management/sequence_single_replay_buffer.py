@@ -66,6 +66,9 @@ class SequenceSingleReplayBuffer(ReplayBuffer):
         self._terminals = np.zeros(
             (self._max_replay_buffer_size,
              self._max_path_length + self._window_size - 1, 1), dtype='uint8')
+        self._masks = np.zeros(
+            (self._max_replay_buffer_size,
+             self._max_path_length + self._window_size - 1, 1), dtype='uint8')
         # Initialize data structures to keep track of path lengths, top of buffer, etc.
         self._valid_ends = np.zeros((self._max_data_points,  2), dtype='uint32')
         self._pathlens = np.zeros(self._max_replay_buffer_size, dtype='uint16')
@@ -90,6 +93,7 @@ class SequenceSingleReplayBuffer(ReplayBuffer):
         self._actions[self._buffer_top, self._pad_size + 1:endpt + 1] = path['actions']
         self._rewards[self._buffer_top, self._pad_size:endpt] = path['rewards']
         self._terminals[self._buffer_top, self._pad_size:endpt] = path['terminals']
+        self._masks[self._buffer_top, self._pad_size:endpt] = 1
         # Update the valid idxs.
         to_the_end = np.min([self._max_data_points - self._valid_top, pathlen])
         if to_the_end > 0:
@@ -122,6 +126,7 @@ class SequenceSingleReplayBuffer(ReplayBuffer):
             next_observation: This is a history of nexts (batch_size, L, obs_dim)
             prev_actions: History of previous actions (batch_size, L, act_dim)
             terminals: Whether last time step is terminals (batch_size, 1)
+            masks: 
         """
         vidxs = (np.random.randint(self._valid_size, size=batch_size)
                  + self._valid_bottom) % self._max_data_points
@@ -131,7 +136,8 @@ class SequenceSingleReplayBuffer(ReplayBuffer):
                 ('observations', self._observations),
                 ('actions', self._actions),
                 ('next_observations', self._observations),
-                ('prev_actions', self._actions)):
+                ('prev_actions', self._actions),
+                ('masks', self._masks)):
             # Note that the actions are offset by 1 when they are loaded in.
             offset = int(key == 'next_observations' or key == 'actions')
             batch[key] =\

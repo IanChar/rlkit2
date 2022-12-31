@@ -61,7 +61,7 @@ class HardCodedSDQNet(PyTorchModule):
             hidden_sizes=[decoder_width for _ in range(decoder_depth)],
         )
 
-    def forward(self, obs_seq, prev_act_seq, act, **kwargs):
+    def forward(self, obs_seq, prev_act_seq, act, masks=None, **kwargs):
         """Forward pass.
 
         Args:
@@ -76,6 +76,8 @@ class HardCodedSDQNet(PyTorchModule):
         else:
             net_in = obs_seq
         stats = self.encoder(net_in[:, -2:])
+        if masks is not None:
+            stats *= masks[:, -2:]
         return self.decoder(torch.cat([
             obs_seq[:, -1],
             act,

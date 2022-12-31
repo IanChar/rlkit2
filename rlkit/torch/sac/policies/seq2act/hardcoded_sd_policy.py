@@ -90,7 +90,7 @@ class HardCodedSDPolicy(TorchStochasticSequencePolicy):
             self.log_std = np.log(std)
             assert LOG_SIG_MIN <= self.log_std <= LOG_SIG_MAX
 
-    def forward(self, obs_seq, act_seq):
+    def forward(self, obs_seq, act_seq, masks=None):
         """Forward should have shapes
 
         Args:
@@ -102,6 +102,8 @@ class HardCodedSDPolicy(TorchStochasticSequencePolicy):
         if self.use_act_encoder:
             act_stats = self.act_encoder(act_seq[:, -2:])
             stats = torch.cat([stats, act_stats], dim=-1)
+        if masks is not None:
+            stats *= masks
         # Pad the fron of the stats with lookback_len - 1 for integral term.
         sid_out = torch.cat([
             stats[:, -1],

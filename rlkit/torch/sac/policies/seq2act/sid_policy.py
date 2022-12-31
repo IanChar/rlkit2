@@ -90,15 +90,17 @@ class SIDPolicy(TorchStochasticSequencePolicy):
         else:
             self.layer_norm = None
 
-    def forward(self, obs_seq, act_seq):
+    def forward(self, obs_seq, act_seq, masks=None):
         """Forward should have shapes
-            (batch_size, L, obs_dim) and (batch_size, L, act_dim)
+            (batch_size, L, obs_dim), (batch_size, L, act_dim), and (batch_size, L, 1)
         """
         # Encode all of the sequences.
         stats = self.obs_encoder(obs_seq)
         if self.use_act_encoder:
             act_stats = self.act_encoder(act_seq)
             stats = torch.cat([stats, act_stats], dim=-1)
+        if masks is not None:
+            stats *= masks
         if self.sum_over_terms:
             iterm = torch.sum(stats, dim=1)
         else:
