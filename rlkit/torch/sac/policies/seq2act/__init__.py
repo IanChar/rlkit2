@@ -21,6 +21,10 @@ from rlkit.torch.sac.policies.seq2act.gaussian_seq import (
     SeqGaussianPolicy,
     SeqGaussianPolicyAdapter,
 )
+from rlkit.torch.sac.policies.seq2act.indv_sid_policy import (
+    IndvSIDPolicy,
+    IndvSIDPolicyAdapter,
+)
 
 
 ADAPTER_DICT = {
@@ -32,4 +36,5 @@ ADAPTER_DICT = {
     'gaussian': SeqGaussianPolicyAdapter,
     'hardcoded_sd': HardCodedSDPolicyAdapter,
     'hardcoded_sid': HardCodedSIDPolicyAdapter,
+    'indv_sid': IndvSIDPolicyAdapter,
 }
