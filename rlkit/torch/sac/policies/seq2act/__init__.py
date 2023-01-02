@@ -25,6 +25,10 @@ from rlkit.torch.sac.policies.seq2act.indv_sid_policy import (
     IndvSIDPolicy,
     IndvSIDPolicyAdapter,
 )
+from rlkit.torch.sac.policies.seq2act.rproj_sid_policy import (
+    RprojSIDPolicy,
+    RprojSIDPolicyAdapter,
+)
 
 
 ADAPTER_DICT = {
@@ -37,4 +41,5 @@ ADAPTER_DICT = {
     'hardcoded_sd': HardCodedSDPolicyAdapter,
     'hardcoded_sid': HardCodedSIDPolicyAdapter,
     'indv_sid': IndvSIDPolicyAdapter,
+    'rproj': RprojSIDPolicyAdapter,
 }
