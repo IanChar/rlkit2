@@ -1,8 +1,8 @@
 """
-Policy that makes statistics then considers the difference in the last one.
+Sequential policy that takes integral, derivative of random projections.
 
 Author: Ian Char
-Date: December 11, 2022
+Date: December 19, 2022
 """
 import numpy as np
 import torch
@@ -15,10 +15,9 @@ from rlkit.torch.sac.policies.gaussian_policy import LOG_SIG_MAX, LOG_SIG_MIN
 from rlkit.torch.sac.policies.sequence_policies import (
     TorchStochasticSequencePolicy,
 )
-from rlkit.torch.networks.mlp import Mlp
 
 
-class HardCodedSIDPolicy(TorchStochasticSequencePolicy):
+class RprojSIDPolicy(TorchStochasticSequencePolicy):
     """Policy that comes up with statistics for each of the states. The action is
     then a linear function of
         * The last current statistic.
@@ -30,19 +29,14 @@ class HardCodedSIDPolicy(TorchStochasticSequencePolicy):
         self,
         obs_dim: int,
         action_dim: int,
-        obs_encoder_width: int,
-        obs_encoder_depth: int,
-        obs_encoding_size: int,
-        act_encoder_width: int,
-        act_encoder_depth: int,
-        act_encoding_size: int,
+        num_projections: int,
         lookback_len: int,
         std=None,
-        use_act_encoder: bool = False,
         attach_obs: bool = False,
-        dt: float = 0.1,
+        layer_norm: bool = True,
         sum_over_terms: bool = False,
         init_w: float = 1e-3,
+        proj_init_w: float = 1e-3,
     ):
         """Constructor.
 
@@ -52,36 +46,16 @@ class HardCodedSIDPolicy(TorchStochasticSequencePolicy):
             std: Fixed standard deviation if necessary.
         """
         super().__init__()
-        assert obs_dim == 3
-        assert obs_encoding_size == 1
-        self.dt = dt
-        self.sum_over_terms = sum_over_terms
-        self.obs_encoder = Mlp(
-            input_size=obs_dim,
-            output_size=obs_encoding_size,
-            hidden_sizes=[obs_encoder_width for _ in range(obs_encoder_depth)],
-        )
-        with torch.no_grad():
-            self.obs_encoder.last_fc.weight = torch.nn.Parameter(
-                torch.Tensor([[-1.0, 1.0, 0.0]]), requires_grad=False)
-            self.obs_encoder.last_fc.bias = torch.nn.Parameter(
-                torch.Tensor([0.0]), requires_grad=False)
+        self.projections = torch.nn.Linear(obs_dim, num_projections, bias=False)
+        self.projections.weight.data.uniform_(-proj_init_w, proj_init_w)
+        self.projections.weight.requires_grad = False
         self.lookback_len = lookback_len
-        self.use_act_encoder = use_act_encoder
         self.attach_obs = attach_obs
-        self.total_encode_dim = obs_encoding_size
-        if use_act_encoder:
-            self.act_encoder = Mlp(
-                input_size=obs_dim,
-                output_size=act_encoding_size,
-                hidden_sizes=[act_encoder_width for _ in range(act_encoder_depth)],
-            )
-            self.total_encode_dim += act_encoder_depth
-        else:
-            self.act_encoder = None
+        self.sum_over_terms = sum_over_terms
         self.std = std
-        in_dim = self.total_encode_dim * 3
-        if self.attach_obs:
+        self.num_projections = num_projections
+        in_dim = num_projections * 3
+        if attach_obs:
             in_dim += obs_dim
         self.last_layer = torch.nn.Linear(in_dim, action_dim)
         if std is None:
@@ -91,31 +65,30 @@ class HardCodedSIDPolicy(TorchStochasticSequencePolicy):
         else:
             self.log_std = np.log(std)
             assert LOG_SIG_MIN <= self.log_std <= LOG_SIG_MAX
+        if layer_norm:
+            self.layer_norm = torch.nn.LayerNorm(3 * num_projections)
+        else:
+            self.layer_norm = None
 
     def forward(self, obs_seq, act_seq, masks=None):
         """Forward should have shapes
-
-        Args:
-            obs_seq: The observation sequence.
-            act_seq: The previous action sequence.
+            (batch_size, L, obs_dim), (batch_size, L, act_dim), and (batch_size, L, 1)
         """
         # Encode all of the sequences.
-        stats = self.obs_encoder(obs_seq)
-        if self.use_act_encoder:
-            act_stats = self.act_encoder(act_seq[:, -2:])
-            stats = torch.cat([stats, act_stats], dim=-1)
+        stats = self.projections(obs_seq)
         if masks is not None:
             stats *= masks
-        # Pad the fron of the stats with lookback_len - 1 for integral term.
         if self.sum_over_terms:
-            iterm = torch.sum(stats, dim=1) * self.dt
+            iterm = torch.sum(stats, dim=1)
         else:
             iterm = torch.mean(stats, dim=1)
         sid_out = torch.cat([
             stats[:, -1],
             iterm,
-            (stats[:, -1] - stats[:, -2]) / self.dt,
-        ], dim=-1)
+            stats[:, -1] - stats[:, -2],
+        ], dim=1)
+        if self.layer_norm is not None:
+            sid_out = self.layer_norm(sid_out)
         if self.attach_obs:
             sid_out = torch.cat([obs_seq[:, -1], sid_out], dim=-1)
         means = self.last_layer(sid_out)
@@ -128,11 +101,11 @@ class HardCodedSIDPolicy(TorchStochasticSequencePolicy):
         return TanhNormal(means, stds)
 
 
-class HardCodedSIDPolicyAdapter(TorchStochasticPolicy):
+class RprojSIDPolicyAdapter(TorchStochasticPolicy):
 
     def __init__(
         self,
-        policy: HardCodedSIDPolicy,
+        policy: RprojSIDPolicy,
         keep_track_of_grads: bool = False,
     ):
         super().__init__()
@@ -167,21 +140,17 @@ class HardCodedSIDPolicyAdapter(TorchStochasticPolicy):
         first_step = self.stats is None
         if first_step:
             self.stats = ptu.zeros((len(obs), self.policy.lookback_len,
-                                    self.policy.total_encode_dim))
-        new_stats = self.policy.obs_encoder(obs)
-        if self.policy.act_encoder is not None:
-            if first_step:
-                self.last_acts = ptu.zeros((len(obs),
-                                            self.policy.act_encoder.input_size))
-            act_stats = self.policy.act_encoder(self.last_acts)
-            new_stats = torch.cat([new_stats, act_stats], dim=1)
+                                    self.policy.num_projections))
+        new_stats = self.policy.projections(obs)
         self.stats = torch.cat([self.stats[:, 1:], new_stats.unsqueeze(1)], dim=1)
         if self.policy.sum_over_terms:
-            iterm = torch.sum(self.stats, dim=1) * self.policy.dt
+            iterm = torch.sum(self.stats, dim=1)
         else:
             iterm = torch.mean(self.stats, dim=1)
-        diff_stat = (self.stats[:, -1] - self.stats[:, -2]) / self.policy.dt
+        diff_stat = self.stats[:, -1] - self.stats[:, -2]
         curr_sid = torch.cat([self.stats[:, -1], iterm, diff_stat], dim=-1)
+        if self.policy.layer_norm is not None:
+            curr_sid = self.policy.layer_norm(curr_sid)
         if self.policy.attach_obs:
             curr_sid = torch.cat([obs, curr_sid], dim=-1)
         mean = self.policy.last_layer(curr_sid)

@@ -1,5 +1,5 @@
 """
-Network that forms encoding based on statistics, integral, and derivative at each step.
+Network that forms encoding based on random projections and their 
 
 Author: Ian Char
 Date: December 12, 2022
@@ -10,20 +10,18 @@ from rlkit.torch.networks.mlp import Mlp
 from rlkit.torch.core import PyTorchModule
 
 
-class HardCodedSIDQNet(PyTorchModule):
+class RprojSIDQNet(PyTorchModule):
     def __init__(
         self,
         obs_dim: int,
         act_dim: int,
-        encode_size: int,
+        num_projections: int,
         lookback_len: int,
-        encoder_width: int,
-        encoder_depth: int,
         decoder_width: int,
         decoder_depth: int,
-        encode_action_seq: bool = False,
-        dt: float = 0.1,
+        layer_norm: bool = True,
         sum_over_terms: bool = False,
+        proj_init_w=1.0,
     ):
         """Constructor.
 
@@ -40,28 +38,19 @@ class HardCodedSIDQNet(PyTorchModule):
         """
         super().__init__()
         self.lookback_len = lookback_len
-        self.encode_action_seq = encode_action_seq
-        input_size = obs_dim
-        self.dt = dt
         self.sum_over_terms = sum_over_terms
-        if encode_action_seq:
-            input_size += act_dim
-        assert input_size == 3
-        self.encoder = Mlp(
-            input_size=input_size,
-            output_size=encode_size,
-            hidden_sizes=[encoder_width for _ in range(encoder_depth)],
-        )
-        with torch.no_grad():
-            self.encoder.last_fc.weight = torch.nn.Parameter(
-                torch.Tensor([[-1.0, 1.0, 0.0]]), requires_grad=False)
-            self.encoder.last_fc.bias = torch.nn.Parameter(
-                torch.Tensor([0.0]), requires_grad=False)
+        self.projections = torch.nn.Linear(obs_dim, num_projections, bias=False)
+        self.projections.weight.data.uniform_(-proj_init_w, proj_init_w)
+        self.projections.weight.requires_grad = False
         self.decoder = Mlp(
-            input_size=encode_size * 3 + obs_dim + act_dim,
+            input_size=num_projections * 3 + obs_dim + act_dim,
             output_size=1,
             hidden_sizes=[decoder_width for _ in range(decoder_depth)],
         )
+        if layer_norm:
+            self.layer_norm = torch.nn.LayerNorm(3 * num_projections)
+        else:
+            self.layer_norm = None
 
     def forward(self, obs_seq, prev_act_seq, act, masks=None, **kwargs):
         """Forward pass.
@@ -73,21 +62,22 @@ class HardCodedSIDQNet(PyTorchModule):
 
         Returns: Value for last observation + action (batch_size, 1)
         """
-        if self.encode_action_seq:
-            net_in = torch.cat([obs_seq, prev_act_seq], dim=-1)
-        else:
-            net_in = obs_seq
-        stats = self.encoder(net_in)
+        stats = self.projections(obs_seq)
         if masks is not None:
             stats *= masks
         if self.sum_over_terms:
-            iterm = torch.sum(stats, dim=1) * self.dt
+            iterm = torch.sum(stats, dim=1)
         else:
             iterm = torch.mean(stats, dim=1)
+        sid_out = torch.cat([
+            stats[:, -1],
+            iterm,
+            stats[:, -1] - stats[:, -2],
+        ], dim=-1)
+        if self.layer_norm is not None:
+            sid_out = self.layer_norm(sid_out)
         return self.decoder(torch.cat([
             obs_seq[:, -1],
             act,
-            stats[:, -1],
-            iterm,
-            (stats[:, -1] - stats[:, -2]) / self.dt,
+            sid_out,
         ], dim=-1))

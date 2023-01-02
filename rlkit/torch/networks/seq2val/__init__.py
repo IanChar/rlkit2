@@ -7,3 +7,4 @@ from rlkit.torch.networks.seq2val.frame_stacked_val import FrameStackedQNet
 from rlkit.torch.networks.seq2val.seq_net import SeqQNet
 from rlkit.torch.networks.seq2val.frame_diff_val import FrameDiffQNet
 from rlkit.torch.networks.seq2val.indv_sid import IndvSIDQNet
+from rlkit.torch.networks.seq2val.rproj_sid import RprojSIDQNet
