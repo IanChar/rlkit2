@@ -40,7 +40,7 @@ class HardCodedSIDPolicy(TorchStochasticSequencePolicy):
         std=None,
         use_act_encoder: bool = False,
         attach_obs: bool = False,
-        dt: float = 10.0,
+        dt: float = 0.1,
         sum_over_terms: bool = False,
         init_w: float = 1e-3,
     ):

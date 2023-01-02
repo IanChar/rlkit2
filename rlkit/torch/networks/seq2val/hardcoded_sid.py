@@ -22,7 +22,7 @@ class HardCodedSIDQNet(PyTorchModule):
         decoder_width: int,
         decoder_depth: int,
         encode_action_seq: bool = False,
-        dt: float = 10.0,
+        dt: float = 0.1,
         sum_over_terms: bool = False,
     ):
         """Constructor.
