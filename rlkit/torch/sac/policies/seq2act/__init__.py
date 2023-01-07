@@ -29,6 +29,10 @@ from rlkit.torch.sac.policies.seq2act.rproj_sid_policy import (
     RprojSIDPolicy,
     RprojSIDPolicyAdapter,
 )
+from rlkit.torch.sac.policies.seq2act.seq_encoder_policy import (
+    SeqEncoderPolicy,
+    SeqEncoderPolicyAdapter,
+)
 
 
 ADAPTER_DICT = {

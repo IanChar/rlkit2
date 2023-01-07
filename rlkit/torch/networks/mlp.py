@@ -25,6 +25,7 @@ class Mlp(PyTorchModule):
             layer_norm=False,
             layer_norm_kwargs=None,
             last_has_bias=True,
+            last_bias_is_uniform=False,
     ):
         super().__init__()
 
@@ -56,7 +57,10 @@ class Mlp(PyTorchModule):
         self.last_fc = nn.Linear(in_size, output_size, bias=last_has_bias)
         self.last_fc.weight.data.uniform_(-init_w, init_w)
         if last_has_bias:
-            self.last_fc.bias.data.fill_(0)
+            if last_bias_is_uniform:
+                self.last_fc.bias.uniform_(-init_w, init_w)
+            else:
+                self.last_fc.bias.data.fill_(0)
 
     def forward(self, input, return_preactivations=False):
         h = input
