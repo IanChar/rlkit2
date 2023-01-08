@@ -101,6 +101,7 @@ class Logger(object):
         self._snapshot_dir = None
         self._snapshot_mode = 'all'
         self._snapshot_gap = 1
+        self._nets_to_snapshot = ['policy']
 
         self._log_tabular_only = False
         self._header_printed = False
@@ -166,6 +167,9 @@ class Logger(object):
 
     def set_log_tabular_only(self, log_tabular_only):
         self._log_tabular_only = log_tabular_only
+
+    def set_nets_to_snap(self, nets):
+        self._nets_to_snapshot = nets
 
     def get_log_tabular_only(self, ):
         return self._log_tabular_only
@@ -330,6 +334,20 @@ class Logger(object):
             else:
                 raise NotImplementedError
 
+    def save_itr_networks(self, itr, snapshot):
+        if self._snapshot_dir:
+            for net in self._nets_to_snapshot:
+                state_dict = snapshot[net].state_dict()
+                net_dir = osp.join(self._snapshot_dir, f'{net}_checkpoints')
+                if not osp.exists(net_dir):
+                    os.makedirs(net_dir)
+                file_name = osp.join(net_dir, f'itr_{itr}.pt')
+                # Don't do any last modes because this is already done by the trainer.
+                if self._snapshot_mode == 'all':
+                    torch.save(state_dict, file_name)
+                elif 'gap' in self._snapshot_mode:
+                    if itr % self._snapshot_gap == 0:
+                        torch.save(state_dict, file_name)
 
 logger = Logger()
 
