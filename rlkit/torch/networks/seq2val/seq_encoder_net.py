@@ -23,6 +23,7 @@ class SeqEncoderQNet(PyTorchModule):
         track_encoder_grads: bool = True,
         append_current_observations: bool = False,
         layer_norm_encodings: bool = True,
+        init_w: float = 1e-3,
     ):
         """Construct.
 
