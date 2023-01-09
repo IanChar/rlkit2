@@ -33,6 +33,7 @@ class SeqEncoderPolicy(TorchStochasticSequencePolicy):
         track_encoder_grads: bool = True,
         append_current_observations: bool = False,
         layer_norm_encodings: bool = True,
+        init_w: float = 1e-3,
     ):
         """Constructor.
 
@@ -55,6 +56,7 @@ class SeqEncoderPolicy(TorchStochasticSequencePolicy):
             input_size=(encoders.output_dim + append_current_observations * obs_dim),
             output_size=action_dim,
             hidden_sizes=[hidden_width for _ in range(hidden_depth)],
+            last_fc_use_uniform=False,
         )
         self.std = std
         if std is None:
@@ -64,6 +66,7 @@ class SeqEncoderPolicy(TorchStochasticSequencePolicy):
                 output_size=action_dim,
                 hidden_sizes=[hidden_width for _ in range(hidden_depth)],
                 last_has_bias=True,
+                init_w=init_w,
             )
         if layer_norm_encodings:
             self.layer_norm = torch.nn.LayerNorm(self.encoders.output_dim)
