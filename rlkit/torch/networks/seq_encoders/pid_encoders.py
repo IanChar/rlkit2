@@ -77,10 +77,41 @@ class IEncoder(BasicSeqEncoder):
         return (self.encoder(net_in) * masks).mean(dim=1)
 
 
-# class EWMAEncoder(BasicSeqEncoder):
+class ExpIEncoder(BasicSeqEncoder):
     """
-    Offshoot of the I encoder which does exponentially weight moving average.
+    Offshoot of the I encoder which does exponentially weighted averaging.
     """
+
+    def __init__(
+        self,
+        alpha: float,
+        **kwargs,
+    ):
+        """Constructor.
+
+        Args:
+            alpha: The smoothing parameter.
+        """
+        super().__init__(**kwargs)
+        self.register_buffer('smoother', alpha * torch.Tensor([
+            (1 - alpha) ** t
+            for t in range(self.lookback - 1, -1, -1)
+        ]).reshape(1, -1, 1))
+
+    def _make_encoding(
+        self,
+        net_in: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> torch.Tensor:
+        """Make encoding.
+
+        Args:
+            net_in: Shape (batch_size, lookback_len, D)
+            masks: Shape (batch_size, lookback_len, 1)
+
+        Returns: Shape (batch_size, encode_dim)
+        """
+        return (self.encoder(net_in) * masks * self.smoother).sum(dim=1)
 
 
 class HardcodedPEncoder(PEncoder):
