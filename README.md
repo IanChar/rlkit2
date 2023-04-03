@@ -1,6 +1,8 @@
 # RLKIT2
 
-### Improvements to rlkit
+For the original rlkit see https://github.com/rail-berkeley/rlkit
+
+### Additions onto RLKit.
 
 * Include CQL
 
