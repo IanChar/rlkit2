@@ -107,6 +107,9 @@ class Logger(object):
         self._header_printed = False
         self.table_printer = TerminalTablePrinter()
 
+    def set_nets_to_snapshot(net_list):
+        self._nets_to_snapshot = net_list
+
     def reset(self):
         self.__init__()
 
@@ -337,6 +340,8 @@ class Logger(object):
     def save_itr_networks(self, itr, snapshot):
         if self._snapshot_dir:
             for net in self._nets_to_snapshot:
+                if net not in snapshot:
+                    continue
                 state_dict = snapshot[net].state_dict()
                 net_dir = osp.join(self._snapshot_dir, f'{net}_checkpoints')
                 if not osp.exists(net_dir):
